@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+:root {
+  --obsidian: #0A0A0A;
+  --obsidian-light: #111111;
+  --obsidian-card: #141414;
+  --cyber-purple: #BC13FE;
+  --cyber-purple-dim: rgba(188, 19, 254, 0.15);
+  --cyber-purple-glow: rgba(188, 19, 254, 0.4);
+  --amber-gold: #FFD700;
+  --amber-gold-dim: rgba(255, 215, 0, 0.15);
+  --amber-gold-glow: rgba(255, 215, 0, 0.4);
+  --glass-bg: rgba(20, 20, 20, 0.6);
+  --glass-border: rgba(188, 19, 254, 0.12);
+  --text-primary: #F0F0F0;
+  --text-secondary: #8A8A8A;
+  --text-muted: #555555;
+  --background: #0A0A0A;
+  --foreground: #F0F0F0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-obsidian: var(--obsidian);
+  --color-obsidian-light: var(--obsidian-light);
+  --color-obsidian-card: var(--obsidian-card);
+  --color-cyber-purple: var(--cyber-purple);
+  --color-amber-gold: var(--amber-gold);
+  --color-glass-bg: var(--glass-bg);
+  --color-glass-border: var(--glass-border);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* ─── Base ──────────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--cyber-purple-dim) transparent;
+}
+
+body {
+  background: var(--obsidian);
+  color: var(--text-primary);
+  font-family: var(--font-sans, 'Inter', system-ui, sans-serif);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Glassmorphism Utilities ──────────────────────────────── */
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+}
+
+.glass-panel-sm {
+  background: rgba(20, 20, 20, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(188, 19, 254, 0.08);
+  border-radius: 12px;
+}
+
+/* ─── Glow Effects ─────────────────────────────────────────── */
+.glow-purple {
+  box-shadow: 0 0 30px var(--cyber-purple-dim), 0 0 60px rgba(188, 19, 254, 0.05);
+}
+
+.glow-gold {
+  box-shadow: 0 0 30px var(--amber-gold-dim), 0 0 60px rgba(255, 215, 0, 0.05);
+}
+
+.glow-purple-text {
+  text-shadow: 0 0 20px var(--cyber-purple-glow);
+}
+
+.glow-gold-text {
+  text-shadow: 0 0 20px var(--amber-gold-glow);
+}
+
+/* ─── Gradient Borders ─────────────────────────────────────── */
+.gradient-border {
+  position: relative;
+}
+
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--cyber-purple), var(--amber-gold));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ─── Pulse Animation ──────────────────────────────────────── */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* ─── Scan Line Effect ─────────────────────────────────────── */
+@keyframes scan {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+.scan-line::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--cyber-purple), transparent);
+  animation: scan 3s ease-in-out infinite;
+}
+
+/* ─── Typing Cursor ────────────────────────────────────────── */
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.typing-cursor::after {
+  content: '▌';
+  color: var(--cyber-purple);
+  animation: blink-cursor 0.8s step-end infinite;
+}
+
+/* ─── Custom Scrollbar ─────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--cyber-purple-dim);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--cyber-purple);
+}
