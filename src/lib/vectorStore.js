@@ -17,12 +17,17 @@ function createEmbeddings() {
 // across different API requests (like /upload and /chat) and hot-reloads.
 const globalForStore = globalThis;
 
-if (!globalForStore.vectorStore) {
-    globalForStore.vectorStore = new MemoryVectorStore(createEmbeddings());
-}
-
-/** The persistent in-memory vector store singleton. */
-export const vectorStore = globalForStore.vectorStore;
+/**
+ * GETTER: Always fetches the most current global vector store.
+ * Prevents stale references when the store is reset during uploads.
+ * @returns {MemoryVectorStore} The current vector store instance.
+ */
+export const getVectorStore = () => {
+    if (!globalForStore.vectorStore) {
+        globalForStore.vectorStore = new MemoryVectorStore(createEmbeddings());
+    }
+    return globalForStore.vectorStore;
+};
 
 /**
  * Creates a fresh vector store, replacing the global singleton.
@@ -33,3 +38,4 @@ export const resetVectorStore = () => {
     globalForStore.vectorStore = new MemoryVectorStore(createEmbeddings());
     return globalForStore.vectorStore;
 };
+

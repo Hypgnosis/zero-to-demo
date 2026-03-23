@@ -33,32 +33,30 @@ describe('vectorStore module', () => {
     vi.resetModules();
   });
 
-  it('exports a vectorStore singleton attached to globalThis', async () => {
+  it('getVectorStore lazily creates a store on globalThis', async () => {
     const mod = await import('@/lib/vectorStore');
-    expect(mod.vectorStore).toBeDefined();
+    const store = mod.getVectorStore();
+    expect(store).toBeDefined();
     expect(globalThis.vectorStore).toBeDefined();
-    expect(mod.vectorStore).toBe(globalThis.vectorStore);
+    expect(store).toBe(globalThis.vectorStore);
   });
 
-  it('reuses the same instance across multiple imports', async () => {
-    const mod1 = await import('@/lib/vectorStore');
-    const ref = globalThis.vectorStore;
-
-    vi.resetModules();
-    const mod2 = await import('@/lib/vectorStore');
-
-    // globalThis wasn't cleared, so the module should reuse the existing store
-    expect(mod2.vectorStore).toBe(ref);
-  });
-
-  it('resetVectorStore creates a fresh store and replaces the global', async () => {
+  it('getVectorStore returns the same instance on repeated calls', async () => {
     const mod = await import('@/lib/vectorStore');
-    const original = globalThis.vectorStore;
+    const first = mod.getVectorStore();
+    const second = mod.getVectorStore();
+    expect(first).toBe(second);
+  });
+
+  it('getVectorStore returns the fresh store after reset', async () => {
+    const mod = await import('@/lib/vectorStore');
+    const original = mod.getVectorStore();
 
     const newStore = mod.resetVectorStore();
+    const fetched = mod.getVectorStore();
 
-    expect(newStore).toBeDefined();
     expect(newStore).not.toBe(original);
+    expect(fetched).toBe(newStore);
     expect(globalThis.vectorStore).toBe(newStore);
   });
 
@@ -73,11 +71,12 @@ describe('vectorStore module', () => {
 
   it('GoogleGenerativeAIEmbeddings is initialized with text-embedding-004', async () => {
     const { GoogleGenerativeAIEmbeddings } = await import('@langchain/google-genai');
-    await import('@/lib/vectorStore');
+    const mod = await import('@/lib/vectorStore');
+
+    // Trigger lazy init
+    mod.getVectorStore();
 
     // The store was created via the constructor, check that it exists
     expect(globalThis.vectorStore).toBeDefined();
-    // Check the embeddings instance inside the store
-    // Since we can't access internal state easily, verify the module didn't throw
   });
 });

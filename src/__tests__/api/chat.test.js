@@ -13,9 +13,7 @@ let mockVectorStore = {
 };
 
 vi.mock('@/lib/vectorStore', () => ({
-  get vectorStore() {
-    return mockVectorStore;
-  },
+  getVectorStore: () => mockVectorStore,
 }));
 
 vi.mock('@langchain/google-genai', () => {

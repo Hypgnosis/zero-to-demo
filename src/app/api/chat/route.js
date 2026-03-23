@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { PromptTemplate } from '@langchain/core/prompts';
 import { HttpResponseOutputParser } from 'langchain/output_parsers';
-import { vectorStore } from '@/lib/vectorStore';
+import { getVectorStore } from '@/lib/vectorStore';
 import { RunnableSequence } from '@langchain/core/runnables';
 
 /** Number of top similar chunks to retrieve from the vector store. */
@@ -29,8 +29,10 @@ export async function POST(req) {
         const query = latestMessage.text;
 
         // 1. Validate Vector Store
-        // Ensure the user has uploaded and vectorized a catalog before querying
-        if (!vectorStore || vectorStore.memoryVectors.length === 0) {
+        // Fetch the freshest instance to prevent stale references after uploads
+        const currentVectorStore = getVectorStore();
+
+        if (!currentVectorStore || currentVectorStore.memoryVectors.length === 0) {
             return NextResponse.json(
                 { error: 'No catalog data found. Please return to Step 1 and upload a product catalog first.' },
                 { status: 400 }
@@ -39,8 +41,8 @@ export async function POST(req) {
 
         // 2. Similarity Search (RAG)
         // Perform a similarity search against the in-memory vector store using the query
-        // Retrieve the top 4 most relevant chunks
-        const relevantChunks = await vectorStore.similaritySearch(query, TOP_K_RESULTS);
+        // Retrieve the top K most relevant chunks
+        const relevantChunks = await currentVectorStore.similaritySearch(query, TOP_K_RESULTS);
 
 
         // Combine the content of those chunks into a single context string
