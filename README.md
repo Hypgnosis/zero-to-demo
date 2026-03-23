@@ -1,26 +1,48 @@
-# Reshapex — Zero-to-Demo RAG Engine
+# ⚡ Project Zero-to-Demo
 
-> **Enterprise-grade autonomous RAG deployment system.**  
-> Upload a PDF catalog and spawn a live AI sales agent in under 30 seconds.  
-> Built by [High ArchyTech Solutions](https://higharchytech.com).
-
-![Reshapex Dashboard](public/ha-logo.png)
+### The High ArchyTech Sales Velocity Engine
 
 ---
 
-## ✨ Features
+## 🎯 Executive Overview
 
-- **📄 PDF Upload & Vectorization** — Drag & drop any product catalog, auto-chunked and embedded via Google Gemini
-- **🤖 Live RAG Chat Agent** — Streamed AI responses grounded in your uploaded documents
-- **🌐 Bilingual (EN/ES)** — One-click language toggle with full i18n support
-- **🎨 Premium Design** — Obsidian dark theme, glassmorphism, cyber purple/amber gold palette
-- **🔮 3D Visualizer** — React Three Fiber octahedron with `meshPhysicalMaterial`, real-time animations
-- **⚡ Thinking Steps** — Animated RAG pipeline visualization (parse → embed → index → deploy)
-- **🧪 42 Tests / 89%+ Coverage** — Full TDD with Vitest + React Testing Library
+**Project Zero-to-Demo** is a high-performance, internal RAG (Retrieval-Augmented Generation) engine engineered to eliminate **"Time-to-Demo"** friction in Enterprise AI sales cycles. Designed specifically for the **Reshapex** ecosystem, this application allows sales representatives to instantly transform complex industrial PDFs (catalogs, RFPs, BOMs) into live, conversational agents in **under 5 minutes**.
 
 ---
 
-## 🚀 Quick Start
+## 🛠 Technical Architecture
+
+We have prioritized **Middleware Elimination** and **Millisecond Load Times** to ensure a frictionless user experience.
+
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| **Frontend** | Next.js (App Router) + Tailwind CSS | Streamlined, drag-and-drop interface |
+| **Orchestration** | LangChain | Sophisticated document chunking and context injection |
+| **Vector Engine** | Stateless In-Memory Vector Store (`globalThis`) | Zero-dependency embedding storage |
+| **Inference** | Google Gemini (`gemini-1.5-flash`) | Cost-effective, high-speed technical retrieval |
+| **Ingestion** | `pdf-parse` | Deterministic text extraction from complex industrial schematics |
+| **3D Visualization** | React Three Fiber + Drei | Premium interactive command center aesthetic |
+
+---
+
+## 🛡 Security: Zero-Retention Architecture
+
+This application is built with an **Ephemeral Data Policy**. Unlike standard RAG implementations that require persistent third-party databases (e.g., Pinecone), Project Zero-to-Demo processes data **entirely in-memory**.
+
+- **Non-Persistent** — All vector embeddings are stored in volatile memory and are purged upon session termination.
+- **Privacy-First** — This architecture ensures that sensitive, proprietary industrial data is never stored on external servers, providing a **"Zero-Leakage"** guarantee for enterprise prospects.
+
+---
+
+## 🚀 Sales Impact
+
+- **Reclaim Engineering Hours** — Transitions the demo process from a "Dev-Heavy" task to a **"Sales-Led"** activity.
+- **Eliminate Overhead** — Bypasses expensive infrastructure subscriptions through custom, proprietary code.
+- **Deterministic Accuracy** — Utilizes a specialized "Industrial Oracle" system prompt to ensure **zero hallucinations** in technical environments.
+
+---
+
+## ⚙️ Quick Start
 
 ### Prerequisites
 
@@ -39,21 +61,29 @@ npm install
 
 # 3. Configure your API key
 cp .env.example .env.local
-# Edit .env.local and replace your_google_api_key_here with your real key
+# Edit .env.local and replace the placeholder with your real Gemini key
 
 # 4. Run the dev server
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to see the dashboard.
+Open [http://localhost:3000](http://localhost:3000) to launch the command center.
+
+### Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server |
+| `npm run build` | Production build |
+| `npm start` | Serve production build |
+| `npm test` | Run all 42 tests |
+| `npm run test:coverage` | Run tests with coverage report (89%+ enforced) |
 
 ---
 
-## 🔐 Security
+## 🔐 Environment Security
 
-> **⚠️ NEVER commit `.env.local` to version control.**
-
-The `.gitignore` is configured to block **all** `.env*` files except `.env.example` (which contains only placeholder values). Your Gemini API key stays local.
+> ⚠️ **NEVER commit `.env.local` to version control.**
 
 | File | Contains Secrets? | Committed? |
 |------|:-:|:-:|
@@ -67,41 +97,15 @@ The `.gitignore` is configured to block **all** `.env*` files except `.env.examp
 ```
 src/
 ├── app/
-│   ├── page.jsx          # Main dashboard (upload → process → chat)
-│   ├── layout.jsx         # Root layout with SEO metadata
-│   ├── globals.css        # Design system (CSS variables, glassmorphism)
+│   ├── page.jsx            # Command center (upload → process → chat)
+│   ├── layout.jsx           # Root layout with SEO metadata
+│   ├── globals.css          # Design system (obsidian, glassmorphism)
 │   └── api/
-│       ├── chat/route.js  # RAG chat endpoint (streaming)
-│       └── upload/route.js # PDF upload & vectorization
+│       ├── chat/route.js    # RAG chat endpoint (streaming)
+│       └── upload/route.js  # PDF upload & vectorization
 ├── lib/
-│   └── vectorStore.js     # In-memory vector store singleton
-└── __tests__/             # 42 tests across 4 test files
-```
-
----
-
-## 🧪 Testing
-
-```bash
-# Run all tests
-npm test
-
-# Watch mode
-npm run test:watch
-
-# With coverage report
-npm run test:coverage
-```
-
-**Coverage thresholds (enforced):** 80% statements, branches, functions, and lines.
-
----
-
-## 🏗️ Production Build
-
-```bash
-npm run build
-npm start
+│   └── vectorStore.js       # Ephemeral in-memory vector store singleton
+└── __tests__/               # 42 tests across 4 test suites
 ```
 
 ---
@@ -111,24 +115,9 @@ npm start
 1. Push to GitHub
 2. Import the repo on [Vercel](https://vercel.com/new)
 3. Add `GOOGLE_API_KEY` as an environment variable in the Vercel dashboard
-4. Deploy — done!
+4. Deploy
 
 ---
 
-## 🛠️ Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Framework | Next.js 16 (App Router) |
-| 3D | React Three Fiber + Drei |
-| Animations | Framer Motion |
-| AI/RAG | LangChain + Google Gemini |
-| Styling | Tailwind CSS 4 |
-| Testing | Vitest + React Testing Library |
-| Icons | Lucide React |
-
----
-
-## 📄 License
-
-Proprietary — High ArchyTech Solutions. All rights reserved.
+**High ArchyTech Solutions** — Autonomous Systems Division  
+*Proprietary. All rights reserved.*
