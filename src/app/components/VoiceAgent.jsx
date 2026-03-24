@@ -7,8 +7,6 @@ import { Mic, MicOff, PhoneOff, Loader2 } from "lucide-react";
 // ═══════════════════════════════════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════
-/** Gemini Live API WebSocket endpoint (v1beta — required). */
-const GEMINI_WS_BASE = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
 
 /** Native audio model for real-time voice. */
 const VOICE_MODEL = "models/gemini-2.5-flash-native-audio-latest";
@@ -157,17 +155,18 @@ export default function VoiceAgent({ isOpen, onClose, lang = "en" }) {
     setErrorMsg(null);
 
     try {
-      // 1. Fetch catalog context + API key from server
+      // 1. Fetch catalog context ONLY (API key stays on the server)
       const res = await fetch("/api/context");
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error || "Failed to load catalog context");
       }
-      const { context, apiKey } = data;
+      const { context } = data;
 
-      // 2. Open WebSocket to Gemini Live API (v1beta)
-      const wsUrl = `${GEMINI_WS_BASE}?key=${apiKey}`;
-      const ws = new WebSocket(wsUrl);
+      // 2. Connect to our secure internal proxy (key never leaves the server)
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const proxyUrl = `${protocol}//${window.location.host}/api/voice-proxy`;
+      const ws = new WebSocket(proxyUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
