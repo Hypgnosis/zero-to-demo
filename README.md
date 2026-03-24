@@ -53,8 +53,8 @@ This application is built with an **Ephemeral Data Policy**. Unlike standard RAG
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/YOUR_USERNAME/reshapex-zero-to-demo.git
-cd reshapex-zero-to-demo
+git clone https://github.com/Hypgnosis/zero-to-demo.git
+cd zero-to-demo
 
 # 2. Install dependencies
 npm install
