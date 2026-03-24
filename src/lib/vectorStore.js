@@ -2,14 +2,14 @@ import { MemoryVectorStore } from "langchain/vectorstores/memory";
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 
 /** Gemini embedding model used for document vectorization. */
-const EMBEDDING_MODEL = "text-embedding-004";
+const EMBEDDING_MODEL = "gemini-embedding-001";
 
 /**
  * Creates a fresh GoogleGenerativeAIEmbeddings instance.
  * Automatically reads the GOOGLE_API_KEY environment variable.
  */
 function createEmbeddings() {
-    return new GoogleGenerativeAIEmbeddings({ modelName: EMBEDDING_MODEL });
+    return new GoogleGenerativeAIEmbeddings({ model: EMBEDDING_MODEL });
 }
 
 // In Next.js (especially development mode), API routes can be re-compiled, leading to state loss.

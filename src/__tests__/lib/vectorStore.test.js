@@ -20,7 +20,7 @@ vi.mock('langchain/vectorstores/memory', () => {
 vi.mock('@langchain/google-genai', () => {
   class FakeEmbeddings {
     constructor(opts) {
-      this.modelName = opts?.modelName;
+      this.model = opts?.model;
     }
   }
   return { GoogleGenerativeAIEmbeddings: FakeEmbeddings };
@@ -69,7 +69,7 @@ describe('vectorStore module', () => {
     expect(store).toHaveProperty('similaritySearch');
   });
 
-  it('GoogleGenerativeAIEmbeddings is initialized with text-embedding-004', async () => {
+  it('GoogleGenerativeAIEmbeddings is initialized with gemini-embedding-001', async () => {
     const { GoogleGenerativeAIEmbeddings } = await import('@langchain/google-genai');
     const mod = await import('@/lib/vectorStore');
 
