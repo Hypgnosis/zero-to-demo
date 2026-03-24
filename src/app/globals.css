@@ -159,15 +159,15 @@ body {
   background: var(--cyber-purple);
 }
 
-/* ─── Voice Agent ──────────────────────────────────────────── */
+/* ─── Voice Agent (Inline Card) ───────────────────────────────── */
 .voice-agent-card {
   background: rgba(14, 14, 14, 0.95);
   backdrop-filter: blur(40px);
   -webkit-backdrop-filter: blur(40px);
   border: 1px solid rgba(188, 19, 254, 0.15);
   box-shadow:
-    0 0 80px rgba(188, 19, 254, 0.08),
-    0 25px 50px rgba(0, 0, 0, 0.5);
+    0 0 40px rgba(188, 19, 254, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 @keyframes voice-bar-bounce {

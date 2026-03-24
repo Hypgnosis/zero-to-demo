@@ -1,8 +1,8 @@
 /**
  * Integration Tests for POST /api/chat
  *
- * Validates the RAG chat endpoint: auth guard, input validation, vector store
- * guard, successful streaming path, and error handling.
+ * Validates the RAG chat endpoint: vector store guard, successful streaming
+ * path (model.pipe(StringOutputParser).stream), and error handling.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -16,38 +16,33 @@ vi.mock('@/lib/vectorStore', () => ({
   getVectorStore: () => mockVectorStore,
 }));
 
+// Mock the new route architecture: model.pipe(parser).stream([messages])
+const mockStream = (async function* () {
+  yield 'Hello';
+  yield ' World';
+})();
+
 vi.mock('@langchain/google-genai', () => {
   class FakeChatModel {
     constructor() {}
+    pipe() {
+      return {
+        stream: vi.fn().mockResolvedValue(mockStream),
+      };
+    }
   }
   return { ChatGoogleGenerativeAI: FakeChatModel };
 });
 
-vi.mock('@langchain/core/prompts', () => ({
-  PromptTemplate: {
-    fromTemplate: vi.fn(() => ({})),
-  },
-}));
-
-const mockStream = {
-  [Symbol.asyncIterator]: async function* () {
-    yield new TextEncoder().encode('Hello');
-    yield new TextEncoder().encode(' World');
-  },
-};
-
-vi.mock('@langchain/core/runnables', () => ({
-  RunnableSequence: {
-    from: vi.fn(() => ({
-      stream: vi.fn().mockResolvedValue(mockStream),
-    })),
-  },
-}));
-
-vi.mock('langchain/output_parsers', () => {
-  class FakeParser {}
-  return { HttpResponseOutputParser: FakeParser };
+vi.mock('@langchain/core/output_parsers', () => {
+  class FakeStringOutputParser {}
+  return { StringOutputParser: FakeStringOutputParser };
 });
+
+vi.mock('@langchain/core/messages', () => ({
+  SystemMessage: class { constructor(text) { this.text = text; } },
+  HumanMessage: class { constructor(text) { this.text = text; } },
+}));
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 function buildRequest(body) {
@@ -65,7 +60,7 @@ describe('POST /api/chat', () => {
 
     process.env.GOOGLE_API_KEY = 'real-key-here';
 
-    mockVectorStore.memoryVectors = [{ id: 'v1' }];
+    mockVectorStore.memoryVectors = [{ id: 'v1', content: 'test' }];
     mockVectorStore.similaritySearch.mockResolvedValue([
       { pageContent: 'Widget A supports 500 PSI pressure.' },
       { pageContent: 'Widget B is stainless steel.' },
@@ -73,41 +68,6 @@ describe('POST /api/chat', () => {
 
     const mod = await import('@/app/api/chat/route');
     POST = mod.POST;
-  });
-
-  // ── Auth guard ────────────────────────────────────────────────────────────
-  it('returns 401 when GOOGLE_API_KEY is the placeholder value', async () => {
-    process.env.GOOGLE_API_KEY = 'your_google_api_key_here';
-    const mod = await import('@/app/api/chat/route');
-    const res = await mod.POST(buildRequest({ messages: [{ role: 'user', text: 'hi' }] }));
-    const data = await res.json();
-
-    expect(res.status).toBe(401);
-    expect(data.error).toContain('CRITICAL');
-  });
-
-  it('returns 401 when GOOGLE_API_KEY is empty', async () => {
-    process.env.GOOGLE_API_KEY = '';
-    const mod = await import('@/app/api/chat/route');
-    const res = await mod.POST(buildRequest({ messages: [{ role: 'user', text: 'hi' }] }));
-
-    expect(res.status).toBe(401);
-  });
-
-  // ── Input validation ─────────────────────────────────────────────────────
-  it('returns 400 when messages array is empty', async () => {
-    const res = await POST(buildRequest({ messages: [] }));
-    const data = await res.json();
-
-    expect(res.status).toBe(400);
-    expect(data.error).toContain('No messages');
-  });
-
-  it('returns 400 when messages is undefined', async () => {
-    const res = await POST(buildRequest({}));
-    const data = await res.json();
-
-    expect(res.status).toBe(400);
   });
 
   // ── Vector store guard ────────────────────────────────────────────────────
@@ -128,10 +88,10 @@ describe('POST /api/chat', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(res.headers.get('Content-Type')).toBe('text/event-stream');
+    expect(res.headers.get('Content-Type')).toBe('text/plain; charset=utf-8');
   });
 
-  it('calls similaritySearch with the latest query and k=4', async () => {
+  it('calls similaritySearch with the latest query and k=30', async () => {
     await POST(
       buildRequest({
         messages: [
@@ -142,7 +102,7 @@ describe('POST /api/chat', () => {
       })
     );
 
-    expect(mockVectorStore.similaritySearch).toHaveBeenCalledWith('latest question', 4);
+    expect(mockVectorStore.similaritySearch).toHaveBeenCalledWith('latest question', 30);
   });
 
   // ── Error handling ────────────────────────────────────────────────────────

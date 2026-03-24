@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, Suspense } from "react";
+import React, { useState, useRef, useEffect, useCallback, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   UploadCloud,
@@ -279,6 +279,7 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [errorMsg, setErrorMsg] = useState(null);
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const voiceAiMsgIdRef = useRef(null);
   const chatEndRef = useRef(null);
   const msgIdCounter = useRef(0);
 
@@ -443,7 +444,40 @@ export default function App() {
     setIsProcessing(false);
     setChatInput("");
     setErrorMsg(null);
+    setVoiceOpen(false);
   };
+
+  /**
+   * Handles voice transcription events from the VoiceAgent.
+   * Pipes spoken conversation into the main chat as regular message bubbles.
+   * @param {"user"|"ai"} role - Who is speaking.
+   * @param {string} text - The transcript text.
+   */
+  const handleVoiceTranscript = useCallback((role, text) => {
+    if (!text || !text.trim()) return;
+
+    if (role === "user") {
+      // Each user utterance creates a new bubble
+      const userMsg = { role: "user", text: text.trim(), id: nextMsgId() };
+      setMessages((prev) => [...prev, userMsg]);
+      // Reset so next AI response creates a fresh bubble
+      voiceAiMsgIdRef.current = null;
+    } else if (role === "ai") {
+      // AI text streams in chunks — append to the current AI bubble
+      if (!voiceAiMsgIdRef.current) {
+        const aiId = nextMsgId();
+        voiceAiMsgIdRef.current = aiId;
+        setMessages((prev) => [...prev, { role: "ai", text: text, id: aiId }]);
+      } else {
+        const currentId = voiceAiMsgIdRef.current;
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === currentId ? { ...msg, text: msg.text + text } : msg
+          )
+        );
+      }
+    }
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-[#F0F0F0] font-sans flex flex-col">
@@ -695,17 +729,26 @@ export default function App() {
                   <p className="text-xs text-[#555] leading-relaxed">{t.salesTip}</p>
                 </div>
 
-                {/* Voice Demo Button */}
-                <button
-                  onClick={() => setVoiceOpen(true)}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold
-                    bg-gradient-to-r from-[#BC13FE] to-[#8B0FBF] text-white
-                    hover:from-[#a30de0] hover:to-[#7a0da8] transition-all duration-300
-                    shadow-[0_0_20px_rgba(188,19,254,0.2)] hover:shadow-[0_0_30px_rgba(188,19,254,0.4)] cursor-pointer"
-                >
-                  <Mic className="w-4 h-4" />
-                  {t.voiceBtn}
-                </button>
+                {/* Voice Demo Section */}
+                {voiceOpen ? (
+                  <VoiceAgent
+                    isOpen={voiceOpen}
+                    onClose={() => setVoiceOpen(false)}
+                    onTranscript={handleVoiceTranscript}
+                    lang={lang}
+                  />
+                ) : (
+                  <button
+                    onClick={() => setVoiceOpen(true)}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold
+                      bg-gradient-to-r from-[#BC13FE] to-[#8B0FBF] text-white
+                      hover:from-[#a30de0] hover:to-[#7a0da8] transition-all duration-300
+                      shadow-[0_0_20px_rgba(188,19,254,0.2)] hover:shadow-[0_0_30px_rgba(188,19,254,0.4)] cursor-pointer"
+                  >
+                    <Mic className="w-4 h-4" />
+                    {t.voiceBtn}
+                  </button>
+                )}
 
                 {/* 3D Mini Core */}
                 <div className="glass-panel-sm h-[180px] relative overflow-hidden">
@@ -804,12 +847,7 @@ export default function App() {
         </div>
       </footer>
 
-      {/* ═══ VOICE AGENT MODAL ═══════════════════════════════ */}
-      <VoiceAgent
-        isOpen={voiceOpen}
-        onClose={() => setVoiceOpen(false)}
-        lang={lang}
-      />
+
     </div>
   );
 }

@@ -29,13 +29,15 @@ const BUFFER_SIZE = 4096;
 /**
  * VoiceAgent — Real-time multimodal voice interface using Gemini Live API.
  * Streams raw PCM audio over WebSocket (BidiGenerateContent).
+ * Pipes text transcriptions into the main chat via onTranscript callback.
  *
  * @param {Object} props
- * @param {boolean} props.isOpen - Whether the voice agent modal is visible.
- * @param {Function} props.onClose - Callback to close the modal.
+ * @param {boolean} props.isOpen - Whether the voice agent is active.
+ * @param {Function} props.onClose - Callback to close/deactivate the agent.
+ * @param {Function} props.onTranscript - Callback to pipe transcripts to chat: (role, text) => void
  * @param {string} props.lang - Current language ("en" or "es").
  */
-export default function VoiceAgent({ isOpen, onClose, lang = "en" }) {
+export default function VoiceAgent({ isOpen, onClose, onTranscript, lang = "en" }) {
   const [status, setStatus] = useState("idle"); // idle | connecting | connected | error
   const [isMuted, setIsMuted] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -44,6 +46,7 @@ export default function VoiceAgent({ isOpen, onClose, lang = "en" }) {
   // Refs to avoid stale closures in WebSocket/audio callbacks
   const isMutedRef = useRef(false);
   const statusRef = useRef("idle");
+  const onTranscriptRef = useRef(onTranscript);
 
   const wsRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -53,6 +56,9 @@ export default function VoiceAgent({ isOpen, onClose, lang = "en" }) {
   const audioQueueRef = useRef([]);
   const isPlayingRef = useRef(false);
   const playbackCtxRef = useRef(null);
+
+  // Track the current AI message ID so streaming text appends to the same bubble
+  const currentAiMsgIdRef = useRef(null);
 
   const i18n = {
     en: {
@@ -88,6 +94,7 @@ export default function VoiceAgent({ isOpen, onClose, lang = "en" }) {
   // ─── Sync refs with state to avoid stale closures ────────────────
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
   useEffect(() => { statusRef.current = status; }, [status]);
+  useEffect(() => { onTranscriptRef.current = onTranscript; }, [onTranscript]);
 
   // ─── Cleanup on unmount or close ──────────────────────────────────
   useEffect(() => {
@@ -100,44 +107,35 @@ export default function VoiceAgent({ isOpen, onClose, lang = "en" }) {
     }
   }, [isOpen]);
 
-  // ─── PCM Audio Playback (NO decodeAudioData — raw 16-bit PCM) ────
-  const playPcmAudio = useCallback((base64Audio) => {
-    audioQueueRef.current.push(base64Audio);
-    if (!isPlayingRef.current) {
-      processAudioQueue();
-    }
-  }, []);
-
-  const processAudioQueue = useCallback(async () => {
+  // ─── PCM Audio Playback ───────────────────────────────────────────
+  const processAudioQueue = useCallback(() => {
     if (audioQueueRef.current.length === 0) {
       isPlayingRef.current = false;
       return;
     }
+
     isPlayingRef.current = true;
-    const base64 = audioQueueRef.current.shift();
+    const base64Chunk = audioQueueRef.current.shift();
 
     try {
-      if (!playbackCtxRef.current) {
+      if (!playbackCtxRef.current || playbackCtxRef.current.state === "closed") {
         playbackCtxRef.current = new AudioContext({ sampleRate: PLAYBACK_SAMPLE_RATE });
       }
-      const ctx = playbackCtxRef.current;
 
-      // Decode base64 to binary
-      const binaryStr = atob(base64);
+      const ctx = playbackCtxRef.current;
+      const binaryStr = atob(base64Chunk);
       const bytes = new Uint8Array(binaryStr.length);
       for (let i = 0; i < binaryStr.length; i++) {
         bytes[i] = binaryStr.charCodeAt(i);
       }
 
-      // Convert raw 16-bit PCM to Float32 (CRITICAL: no decodeAudioData!)
-      const dataView = new DataView(bytes.buffer);
-      const numSamples = Math.floor(bytes.length / 2);
+      const view = new DataView(bytes.buffer);
+      const numSamples = bytes.length / 2;
       const audioBuffer = ctx.createBuffer(1, numSamples, PLAYBACK_SAMPLE_RATE);
       const channelData = audioBuffer.getChannelData(0);
 
       for (let i = 0; i < numSamples; i++) {
-        const int16 = dataView.getInt16(i * 2, true); // little-endian
-        channelData[i] = int16 / 32768.0;
+        channelData[i] = view.getInt16(i * 2, true) / 32768.0;
       }
 
       const source = ctx.createBufferSource();
@@ -150,6 +148,16 @@ export default function VoiceAgent({ isOpen, onClose, lang = "en" }) {
       processAudioQueue();
     }
   }, []);
+
+  const playPcmAudio = useCallback(
+    (base64Data) => {
+      audioQueueRef.current.push(base64Data);
+      if (!isPlayingRef.current) {
+        processAudioQueue();
+      }
+    },
+    [processAudioQueue]
+  );
 
   // ─── Connect to Gemini Live API ───────────────────────────────────
   const connect = useCallback(async () => {
@@ -176,17 +184,12 @@ export default function VoiceAgent({ isOpen, onClose, lang = "en" }) {
           setup: {
             model: VOICE_MODEL,
             generationConfig: {
-              responseModalities: ["AUDIO"],
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName: "Puck" },
-                },
-              },
+              responseModalities: ["AUDIO", "TEXT"],
             },
             systemInstruction: {
               parts: [
                 {
-                  text: `You are an expert technical sales engineer for Reshapex.
+                  text: `You are the Reshapex Industrial Sales Engineer voice assistant.
 Answer the prospect's questions professionally, concisely, and conversationally over audio.
 Use ONLY the following prospect catalog data to answer questions.
 If it's not in the data, say you don't have that specification handy.
@@ -222,12 +225,30 @@ ${context}`,
             return;
           }
 
-          // Handle audio response
+          // Handle model turn (AI response — audio + text)
           if (response.serverContent?.modelTurn?.parts) {
             for (const part of response.serverContent.modelTurn.parts) {
+              // Play audio
               if (part.inlineData?.data) {
                 playPcmAudio(part.inlineData.data);
               }
+              // Pipe text transcript to chat
+              if (part.text && onTranscriptRef.current) {
+                onTranscriptRef.current("ai", part.text, currentAiMsgIdRef.current);
+              }
+            }
+          }
+
+          // When the model turn is complete, reset the AI message ID
+          // so the next response creates a new bubble
+          if (response.serverContent?.turnComplete) {
+            currentAiMsgIdRef.current = null;
+          }
+
+          // Handle user input transcript (Gemini echoes what the user said)
+          if (response.serverContent?.inputTranscript) {
+            if (onTranscriptRef.current) {
+              onTranscriptRef.current("user", response.serverContent.inputTranscript);
             }
           }
         } catch (err) {
@@ -253,7 +274,7 @@ ${context}`,
         }
       };
     } catch (err) {
-      console.error("Connection error:", err);
+      console.error("Voice agent connect error:", err);
       setErrorMsg(err.message);
       setStatus("error");
     }
@@ -278,7 +299,6 @@ ${context}`,
       const source = audioCtx.createMediaStreamSource(stream);
       sourceRef.current = source;
 
-      // Use ScriptProcessorNode to capture raw PCM
       const processor = audioCtx.createScriptProcessor(BUFFER_SIZE, 1, 1);
       processorRef.current = processor;
 
@@ -294,15 +314,15 @@ ${context}`,
         const rms = Math.sqrt(sum / inputData.length);
         setAudioLevel(Math.min(rms * 5, 1));
 
-        // Convert Float32 to 16-bit PCM
-        const pcm16 = new Int16Array(inputData.length);
+        // Convert Float32 to Int16 PCM
+        const pcmData = new Int16Array(inputData.length);
         for (let i = 0; i < inputData.length; i++) {
           const s = Math.max(-1, Math.min(1, inputData[i]));
-          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+          pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
         }
 
         // Base64 encode and send
-        const uint8 = new Uint8Array(pcm16.buffer);
+        const uint8 = new Uint8Array(pcmData.buffer);
         let binary = "";
         for (let i = 0; i < uint8.length; i++) {
           binary += String.fromCharCode(uint8[i]);
@@ -328,7 +348,7 @@ ${context}`,
       source.connect(processor);
       processor.connect(audioCtx.destination);
     } catch (err) {
-      console.error("Microphone error:", err);
+      console.error("Microphone access error:", err);
       setErrorMsg("Microphone access denied");
       setStatus("error");
     }
@@ -336,13 +356,10 @@ ${context}`,
 
   // ─── Disconnect ───────────────────────────────────────────────────
   const disconnect = useCallback(() => {
-    // Close WebSocket
     if (wsRef.current) {
-      wsRef.current.close(1000);
+      wsRef.current.close(1000, "User disconnected");
       wsRef.current = null;
     }
-
-    // Stop microphone
     if (processorRef.current) {
       processorRef.current.disconnect();
       processorRef.current = null;
@@ -367,6 +384,7 @@ ${context}`,
     // Clear audio queue
     audioQueueRef.current = [];
     isPlayingRef.current = false;
+    currentAiMsgIdRef.current = null;
 
     setStatus("idle");
     setAudioLevel(0);
@@ -382,165 +400,126 @@ ${context}`,
 
   if (!isOpen) return null;
 
+  // ═══════════════════════════════════════════════════════════════════
+  // INLINE CARD UI (replaces the old fullscreen modal)
+  // ═══════════════════════════════════════════════════════════════════
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-xl"
-        onClick={(e) => e.target === e.currentTarget && handleClose()}
-      >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 10 }}
-          transition={{ duration: 0.3, ease: "easeOut" }}
-          className="relative w-full max-w-md mx-4"
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 10 }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
+      className="voice-agent-card rounded-2xl p-5"
+    >
+      {/* ─── Header ──────────────────────────────────────────── */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-sm font-bold text-[#F0F0F0]">{t.title}</h3>
+          <p className="text-[10px] font-mono text-[#555]">{t.subtitle}</p>
+        </div>
+        {/* Compact orb indicator */}
+        <div
+          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-500 ${
+            status === "connected"
+              ? "bg-gradient-to-br from-[#BC13FE] to-[#8B0FBF] shadow-[0_0_20px_rgba(188,19,254,0.4)]"
+              : status === "connecting"
+              ? "bg-gradient-to-br from-[#BC13FE]/60 to-[#8B0FBF]/60 animate-pulse"
+              : status === "error"
+              ? "bg-gradient-to-br from-red-500/40 to-red-700/40"
+              : "bg-[#1A1A1A] border border-[#BC13FE]/20"
+          }`}
+          style={{
+            transform:
+              status === "connected"
+                ? `scale(${1 + audioLevel * 0.2})`
+                : "scale(1)",
+            transition: "transform 100ms ease-out",
+          }}
         >
-          {/* ─── Voice Agent Card ─────────────────────────────── */}
-          <div className="voice-agent-card rounded-3xl p-8 text-center">
-            {/* Header */}
-            <div className="mb-8">
-              <h2 className="text-xl font-bold text-[#F0F0F0] mb-1">
-                {t.title}
-              </h2>
-              <p className="text-xs font-mono text-[#555]">{t.subtitle}</p>
+          {status === "connecting" ? (
+            <Loader2 className="w-3.5 h-3.5 text-white/80 animate-spin" />
+          ) : status === "connected" ? (
+            <div className="flex items-center gap-[2px]">
+              {[...Array(3)].map((_, i) => (
+                <div
+                  key={i}
+                  className="w-[2px] bg-white/90 rounded-full voice-bar"
+                  style={{
+                    height: `${6 + audioLevel * 10}px`,
+                    animationDelay: `${i * 0.1}s`,
+                  }}
+                />
+              ))}
             </div>
+          ) : (
+            <Mic className="w-3.5 h-3.5 text-[#BC13FE]/60" />
+          )}
+        </div>
+      </div>
 
-            {/* ─── Orb Visualizer ───────────────────────────── */}
-            <div className="relative w-40 h-40 mx-auto mb-8">
-              {/* Outer pulse rings */}
-              {status === "connected" && (
-                <>
-                  <div
-                    className="absolute inset-0 rounded-full border border-[#BC13FE]/20 animate-ping"
-                    style={{ animationDuration: "2s" }}
-                  />
-                  <div
-                    className="absolute inset-2 rounded-full border border-[#BC13FE]/15 animate-ping"
-                    style={{ animationDuration: "2.5s", animationDelay: "0.5s" }}
-                  />
-                </>
-              )}
+      {/* ─── Status ──────────────────────────────────────────── */}
+      <p
+        className={`text-xs font-mono mb-4 ${
+          status === "connected"
+            ? "text-[#BC13FE]"
+            : status === "error"
+            ? "text-red-400"
+            : "text-[#555]"
+        }`}
+      >
+        {status === "connected"
+          ? t.connected
+          : status === "connecting"
+          ? t.connecting
+          : status === "error"
+          ? errorMsg || t.error
+          : t.idle}
+      </p>
 
-              {/* Main orb */}
-              <div
-                className={`absolute inset-4 rounded-full flex items-center justify-center transition-all duration-500 ${
-                  status === "connected"
-                    ? "bg-gradient-to-br from-[#BC13FE] to-[#8B0FBF] shadow-[0_0_60px_rgba(188,19,254,0.5)]"
-                    : status === "connecting"
-                    ? "bg-gradient-to-br from-[#BC13FE]/60 to-[#8B0FBF]/60 animate-pulse"
-                    : status === "error"
-                    ? "bg-gradient-to-br from-red-500/40 to-red-700/40"
-                    : "bg-[#1A1A1A] border border-[#BC13FE]/20"
-                }`}
-                style={{
-                  transform:
-                    status === "connected"
-                      ? `scale(${1 + audioLevel * 0.15})`
-                      : "scale(1)",
-                  transition: "transform 100ms ease-out",
-                }}
-              >
-                {status === "connecting" ? (
-                  <Loader2 className="w-10 h-10 text-white/80 animate-spin" />
-                ) : status === "connected" ? (
-                  <div className="flex items-center gap-1">
-                    {[...Array(5)].map((_, i) => (
-                      <div
-                        key={i}
-                        className="w-1 bg-white/90 rounded-full voice-bar"
-                        style={{
-                          height: `${12 + audioLevel * 24 + Math.random() * 8}px`,
-                          animationDelay: `${i * 0.1}s`,
-                        }}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <Mic className="w-10 h-10 text-[#BC13FE]/60" />
-                )}
-              </div>
-            </div>
-
-            {/* ─── Status Text ──────────────────────────────── */}
-            <div className="mb-8">
-              <p
-                className={`text-sm font-mono ${
-                  status === "connected"
-                    ? "text-[#BC13FE]"
-                    : status === "error"
-                    ? "text-red-400"
-                    : "text-[#555]"
-                }`}
-              >
-                {status === "connected"
-                  ? t.connected
-                  : status === "connecting"
-                  ? t.connecting
-                  : status === "error"
-                  ? errorMsg || t.error
-                  : t.idle}
-              </p>
-            </div>
-
-            {/* ─── Controls ────────────────────────────────── */}
-            <div className="flex items-center justify-center gap-4">
-              {status === "idle" || status === "error" ? (
-                <button
-                  onClick={connect}
-                  className="flex items-center gap-2 px-8 py-3.5 rounded-2xl bg-gradient-to-r from-[#BC13FE] to-[#8B0FBF] text-white text-sm font-semibold
-                    hover:from-[#a30de0] hover:to-[#7a0da8] transition-all duration-300
-                    shadow-[0_0_30px_rgba(188,19,254,0.3)] hover:shadow-[0_0_40px_rgba(188,19,254,0.5)] cursor-pointer"
-                >
-                  <Mic className="w-4 h-4" />
-                  {t.idle}
-                </button>
+      {/* ─── Controls ────────────────────────────────────────── */}
+      <div className="flex items-center gap-2">
+        {status === "idle" || status === "error" ? (
+          <button
+            onClick={connect}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#BC13FE] to-[#8B0FBF] text-white text-xs font-semibold
+              hover:from-[#a30de0] hover:to-[#7a0da8] transition-all duration-300
+              shadow-[0_0_20px_rgba(188,19,254,0.3)] hover:shadow-[0_0_30px_rgba(188,19,254,0.4)] cursor-pointer"
+          >
+            <Mic className="w-3.5 h-3.5" />
+            {t.idle}
+          </button>
+        ) : (
+          <>
+            {/* Mute/Unmute */}
+            <button
+              onClick={() => setIsMuted(!isMuted)}
+              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 cursor-pointer ${
+                isMuted
+                  ? "bg-red-500/20 border border-red-500/30 text-red-400"
+                  : "bg-[#1A1A1A] border border-[#BC13FE]/20 text-[#8A8A8A] hover:text-[#BC13FE] hover:border-[#BC13FE]/40"
+              }`}
+              title={isMuted ? t.unmute : t.mute}
+            >
+              {isMuted ? (
+                <MicOff className="w-4 h-4" />
               ) : (
-                <>
-                  {/* Mute/Unmute */}
-                  <button
-                    onClick={() => setIsMuted(!isMuted)}
-                    className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-300 cursor-pointer ${
-                      isMuted
-                        ? "bg-red-500/20 border border-red-500/30 text-red-400"
-                        : "bg-[#1A1A1A] border border-[#BC13FE]/20 text-[#8A8A8A] hover:text-[#BC13FE] hover:border-[#BC13FE]/40"
-                    }`}
-                    title={isMuted ? t.unmute : t.mute}
-                  >
-                    {isMuted ? (
-                      <MicOff className="w-5 h-5" />
-                    ) : (
-                      <Mic className="w-5 h-5" />
-                    )}
-                  </button>
-
-                  {/* End Call */}
-                  <button
-                    onClick={handleClose}
-                    className="w-14 h-14 rounded-2xl bg-red-500/20 border border-red-500/30 flex items-center justify-center
-                      text-red-400 hover:bg-red-500/30 transition-all duration-300 cursor-pointer"
-                    title={t.endCall}
-                  >
-                    <PhoneOff className="w-5 h-5" />
-                  </button>
-                </>
+                <Mic className="w-4 h-4" />
               )}
-            </div>
+            </button>
 
-            {/* ─── Close hint ───────────────────────────────── */}
-            {status === "idle" && (
-              <button
-                onClick={handleClose}
-                className="mt-6 text-xs font-mono text-[#333] hover:text-[#555] transition-colors cursor-pointer"
-              >
-                ESC to close
-              </button>
-            )}
-          </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+            {/* End Call */}
+            <button
+              onClick={handleClose}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-red-500/20 border border-red-500/30
+                text-red-400 text-xs font-semibold hover:bg-red-500/30 transition-all duration-300 cursor-pointer"
+              title={t.endCall}
+            >
+              <PhoneOff className="w-3.5 h-3.5" />
+              {t.endCall}
+            </button>
+          </>
+        )}
+      </div>
+    </motion.div>
   );
 }
