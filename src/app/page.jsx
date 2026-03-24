@@ -23,9 +23,11 @@ import {
   Braces,
   Database,
   X,
+  Mic,
 } from "lucide-react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Float, Environment, ContactShadows } from "@react-three/drei";
+import VoiceAgent from "./components/VoiceAgent";
 
 // ═══════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -75,6 +77,8 @@ const translations = {
     chatTitle: "Autonomous Agent",
     chatPlaceholder: "Ask a technical question...",
     sendBtn: "Send",
+    // Voice
+    voiceBtn: "Start Voice Demo",
     // Thinking steps
     thinkStep1: "Scanning PDF segments...",
     thinkStep2: "Vectorizing to globalThis...",
@@ -114,6 +118,7 @@ const translations = {
     chatTitle: "Agente Autónomo",
     chatPlaceholder: "Haz una pregunta técnica...",
     sendBtn: "Enviar",
+    voiceBtn: "Iniciar Demo de Voz",
     thinkStep1: "Escaneando segmentos PDF...",
     thinkStep2: "Vectorizando en globalThis...",
     thinkStep3: "Construyendo pipeline RAG...",
@@ -273,6 +278,7 @@ export default function App() {
   const [chatInput, setChatInput] = useState("");
   const [messages, setMessages] = useState([]);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const chatEndRef = useRef(null);
   const msgIdCounter = useRef(0);
 
@@ -689,6 +695,18 @@ export default function App() {
                   <p className="text-xs text-[#555] leading-relaxed">{t.salesTip}</p>
                 </div>
 
+                {/* Voice Demo Button */}
+                <button
+                  onClick={() => setVoiceOpen(true)}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold
+                    bg-gradient-to-r from-[#BC13FE] to-[#8B0FBF] text-white
+                    hover:from-[#a30de0] hover:to-[#7a0da8] transition-all duration-300
+                    shadow-[0_0_20px_rgba(188,19,254,0.2)] hover:shadow-[0_0_30px_rgba(188,19,254,0.4)] cursor-pointer"
+                >
+                  <Mic className="w-4 h-4" />
+                  {t.voiceBtn}
+                </button>
+
                 {/* 3D Mini Core */}
                 <div className="glass-panel-sm h-[180px] relative overflow-hidden">
                   <CoreScene isActive={true} />
@@ -785,6 +803,13 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* ═══ VOICE AGENT MODAL ═══════════════════════════════ */}
+      <VoiceAgent
+        isOpen={voiceOpen}
+        onClose={() => setVoiceOpen(false)}
+        lang={lang}
+      />
     </div>
   );
 }

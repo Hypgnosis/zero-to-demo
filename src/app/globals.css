@@ -158,3 +158,26 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--cyber-purple);
 }
+
+/* ─── Voice Agent ──────────────────────────────────────────── */
+.voice-agent-card {
+  background: rgba(14, 14, 14, 0.95);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  border: 1px solid rgba(188, 19, 254, 0.15);
+  box-shadow:
+    0 0 80px rgba(188, 19, 254, 0.08),
+    0 25px 50px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes voice-bar-bounce {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+.voice-bar {
+  animation: voice-bar-bounce 0.6s ease-in-out infinite;
+  transform-origin: bottom;
+  min-height: 4px;
+}
+

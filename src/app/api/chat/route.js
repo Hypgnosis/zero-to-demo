@@ -74,7 +74,7 @@ USER QUESTION:
 
         // 4. Initialize LLM Model
         const model = new ChatGoogleGenerativeAI({
-            modelName: 'gemini-1.5-flash',
+            model: 'gemini-1.5-flash',
             temperature: 0.1, // Keep it deterministic for factual catalog queries
             streaming: true, // Crucial for streaming the response
         });
