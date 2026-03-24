@@ -4,9 +4,9 @@ import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { resetVectorStore } from '@/lib/vectorStore';
 
 /** Maximum characters per text chunk for vectorization. */
-const CHUNK_SIZE = 1000;
+const CHUNK_SIZE = 50000;
 /** Number of overlapping characters between adjacent chunks to preserve context. */
-const CHUNK_OVERLAP = 200;
+const CHUNK_OVERLAP = 10000;
 
 
 export async function POST(request) {

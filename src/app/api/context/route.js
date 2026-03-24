@@ -3,11 +3,19 @@ import { getVectorStore } from '@/lib/vectorStore';
 
 /**
  * GET /api/context
- * Returns the full text of all uploaded documents from the in-memory vector store.
- * Does NOT expose the API key — the voice proxy handles authentication server-side.
+ * Returns the full catalog text and the API key for the voice agent.
+ * The API key is needed because Next.js cannot proxy WebSockets natively.
  */
 export async function GET() {
     try {
+        const apiKey = process.env.GOOGLE_API_KEY;
+        if (!apiKey || apiKey.includes('your_google_api_key_here')) {
+            return NextResponse.json(
+                { error: 'GOOGLE_API_KEY is not configured.' },
+                { status: 500 }
+            );
+        }
+
         const store = getVectorStore();
 
         if (!store || store.memoryVectors.length === 0) {
@@ -17,11 +25,9 @@ export async function GET() {
             );
         }
 
-        // Combine all chunks back into a single reference string
         const fullText = store.memoryVectors.map(v => v.content).join('\n\n');
 
-        // Return ONLY the context. The API key is never sent to the client.
-        return NextResponse.json({ context: fullText });
+        return NextResponse.json({ context: fullText, apiKey });
     } catch (error) {
         console.error('SERVER ERROR - /api/context:', error);
         return NextResponse.json(
