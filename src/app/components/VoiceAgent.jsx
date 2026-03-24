@@ -184,8 +184,10 @@ export default function VoiceAgent({ isOpen, onClose, onTranscript, lang = "en" 
           setup: {
             model: VOICE_MODEL,
             generationConfig: {
-              responseModalities: ["AUDIO", "TEXT"],
+              responseModalities: ["AUDIO"],
             },
+            outputAudioTranscription: {},
+            inputAudioTranscription: {},
             systemInstruction: {
               parts: [
                 {
@@ -225,16 +227,12 @@ ${context}`,
             return;
           }
 
-          // Handle model turn (AI response — audio + text)
+          // Handle model turn (AI audio response)
           if (response.serverContent?.modelTurn?.parts) {
             for (const part of response.serverContent.modelTurn.parts) {
-              // Play audio
+              // Play audio only — ignore part.text (that's thinking/reasoning)
               if (part.inlineData?.data) {
                 playPcmAudio(part.inlineData.data);
-              }
-              // Pipe text transcript to chat
-              if (part.text && onTranscriptRef.current) {
-                onTranscriptRef.current("ai", part.text, currentAiMsgIdRef.current);
               }
             }
           }
@@ -243,13 +241,20 @@ ${context}`,
           // so the next response creates a new bubble
           if (response.serverContent?.turnComplete) {
             currentAiMsgIdRef.current = null;
+            // Signal page.jsx to reset its bubble ref
+            if (onTranscriptRef.current) {
+              onTranscriptRef.current("turn_complete", "");
+            }
           }
 
-          // Handle user input transcript (Gemini echoes what the user said)
-          if (response.serverContent?.inputTranscript) {
-            if (onTranscriptRef.current) {
-              onTranscriptRef.current("user", response.serverContent.inputTranscript);
-            }
+          // Handle OUTPUT transcription (what the AI actually SAYS out loud)
+          if (response.serverContent?.outputTranscription?.text && onTranscriptRef.current) {
+            onTranscriptRef.current("ai", response.serverContent.outputTranscription.text);
+          }
+
+          // Handle INPUT transcription (what the user said)
+          if (response.serverContent?.inputTranscription?.text && onTranscriptRef.current) {
+            onTranscriptRef.current("user", response.serverContent.inputTranscription.text);
           }
         } catch (err) {
           console.error("WebSocket message parse error:", err);

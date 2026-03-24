@@ -454,6 +454,12 @@ export default function App() {
    * @param {string} text - The transcript text.
    */
   const handleVoiceTranscript = useCallback((role, text) => {
+    // Turn complete signal — reset AI bubble ref so next response gets a new bubble
+    if (role === "turn_complete") {
+      voiceAiMsgIdRef.current = null;
+      return;
+    }
+
     if (!text || !text.trim()) return;
 
     if (role === "user") {
