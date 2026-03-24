@@ -41,6 +41,10 @@ export default function VoiceAgent({ isOpen, onClose, lang = "en" }) {
   const [errorMsg, setErrorMsg] = useState(null);
   const [audioLevel, setAudioLevel] = useState(0);
 
+  // Refs to avoid stale closures in WebSocket/audio callbacks
+  const isMutedRef = useRef(false);
+  const statusRef = useRef("idle");
+
   const wsRef = useRef(null);
   const audioContextRef = useRef(null);
   const streamRef = useRef(null);
@@ -81,13 +85,17 @@ export default function VoiceAgent({ isOpen, onClose, lang = "en" }) {
 
   const t = i18n[lang] || i18n.en;
 
+  // ─── Sync refs with state to avoid stale closures ────────────────
+  useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
+  useEffect(() => { statusRef.current = status; }, [status]);
+
   // ─── Cleanup on unmount or close ──────────────────────────────────
   useEffect(() => {
     return () => disconnect();
   }, []);
 
   useEffect(() => {
-    if (!isOpen && status !== "idle") {
+    if (!isOpen && statusRef.current !== "idle") {
       disconnect();
     }
   }, [isOpen]);
@@ -151,11 +159,11 @@ export default function VoiceAgent({ isOpen, onClose, lang = "en" }) {
     try {
       // 1. Fetch catalog context + API key from server
       const res = await fetch("/api/context");
+      const data = await res.json();
       if (!res.ok) {
-        const data = await res.json();
         throw new Error(data.error || "Failed to load catalog context");
       }
-      const { context, apiKey } = await res.json();
+      const { context, apiKey } = data;
 
       // 2. Open WebSocket to Gemini Live API (v1beta)
       const wsUrl = `${GEMINI_WS_BASE}?key=${apiKey}`;
@@ -234,7 +242,7 @@ ${context}`,
       };
 
       ws.onclose = (event) => {
-        if (status !== "idle") {
+        if (statusRef.current !== "idle") {
           console.log("WebSocket closed:", event.code, event.reason);
           if (event.code !== 1000) {
             setErrorMsg(`Connection closed: ${event.reason || `Code ${event.code}`}`);
@@ -275,7 +283,7 @@ ${context}`,
       processorRef.current = processor;
 
       processor.onaudioprocess = (e) => {
-        if (isMuted) return;
+        if (isMutedRef.current) return;
         const inputData = e.inputBuffer.getChannelData(0);
 
         // Calculate audio level for visualization
@@ -324,7 +332,7 @@ ${context}`,
       setErrorMsg("Microphone access denied");
       setStatus("error");
     }
-  }, [isMuted]);
+  }, []);
 
   // ─── Disconnect ───────────────────────────────────────────────────
   const disconnect = useCallback(() => {
