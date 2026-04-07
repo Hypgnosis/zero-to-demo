@@ -1,0 +1,22 @@
+{
+  "name": "axiom-0-voice-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@fastify/websocket": "^11.0.2",
+    "@upstash/vector": "^1.2.0",
+    "fastify": "^5.2.0",
+    "jose": "^6.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
