@@ -13,6 +13,7 @@ export const UploadQuerySchema = z.object({
   sessionId: z.string().uuid('sessionId must be a valid UUID'),
   reset: z
     .string()
+    .nullable()
     .optional()
     .transform((v) => v === 'true'),
 });

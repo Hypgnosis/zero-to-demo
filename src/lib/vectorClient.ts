@@ -1,12 +1,5 @@
-/**
- * ═══════════════════════════════════════════════════════════════════
- * AXIOM-0 — Upstash Vector Client
- * Session-isolated, namespace-scoped vector operations.
- * All vectors for a session are stored under its UUID namespace.
- * ═══════════════════════════════════════════════════════════════════
- */
-
 import { Index } from '@upstash/vector';
+import { withRetry } from './retry';
 import type { VectorMetadata } from './types';
 
 /** Upstash requires metadata with string index signature. */
@@ -36,7 +29,11 @@ function getVectorIndex(): Index {
 
 /**
  * Inserts vectors into the session-scoped namespace.
- * Batches upserts into groups of 100 to respect API limits.
+ *
+ * Strategy:
+ * - Batches upserts into groups of 100 to respect API payload limits.
+ * - Each batch is wrapped in withRetry() for exponential backoff on 429s.
+ * - Sequential batch execution prevents thundering herd on the index.
  */
 export async function upsertVectors(
   sessionId: string,
@@ -45,15 +42,22 @@ export async function upsertVectors(
   const index = getVectorIndex();
   const ns = index.namespace(sessionId);
 
-  // Batch upsert in groups of 100
   const BATCH_SIZE = 100;
+  const totalBatches = Math.ceil(vectors.length / BATCH_SIZE);
+
   for (let i = 0; i < vectors.length; i += BATCH_SIZE) {
+    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
     const batch = vectors.slice(i, i + BATCH_SIZE).map((v) => ({
       id: v.id,
       vector: v.vector,
       metadata: v.metadata as VectorMeta,
     }));
-    await ns.upsert(batch);
+
+    await withRetry(() => ns.upsert(batch), {
+      label: `vector-upsert-batch-${batchNum}/${totalBatches}`,
+      maxRetries: 5,
+      baseDelayMs: 500,
+    });
   }
 }
 

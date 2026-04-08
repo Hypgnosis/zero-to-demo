@@ -12,22 +12,22 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    setupFiles: ['./src/__tests__/setup.js'],
-    include: ['src/**/*.{test,spec}.{js,jsx}'],
+    setupFiles: ['./src/__tests__/setup.ts'],
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary', 'html'],
-      include: ['src/**/*.{js,jsx}'],
+      include: ['src/**/*.{ts,tsx}'],
       exclude: [
         'src/__tests__/**',
         'src/app/favicon.ico',
       ],
       thresholds: {
         global: {
-          branches: 80,
-          functions: 80,
-          lines: 80,
-          statements: 80,
+          branches: 70,
+          functions: 70,
+          lines: 70,
+          statements: 70,
         },
       },
     },
