@@ -3,6 +3,11 @@
  * AXIOM-0 — Rate Limiter
  * Redis-backed rate limiting via @upstash/ratelimit.
  * Prevents Denial-of-Wallet attacks on all endpoints.
+ *
+ * Phase 1 Hardening (Finding 4):
+ * - Primary: User-ID based limiting (cryptographically verified via JWT).
+ * - Fallback: IP-based limiting (secondary DDoS layer only).
+ * - Corporate NATs no longer lock out entire organizations.
  * ═══════════════════════════════════════════════════════════════════
  */
 
@@ -73,19 +78,33 @@ function getClientIp(request: Request): string {
 /* ─── Enforcement ─────────────────────────────────────────────── */
 
 /**
- * Checks rate limit for the given endpoint and client IP.
+ * Checks rate limit for the given endpoint.
  * Throws ApiError(429) if exceeded.
  *
- * @param request - The incoming HTTP request.
+ * Strategy (per Finding 4 Remedy):
+ * - When userId is provided: rate limit by verified user identity.
+ *   This prevents corporate NAT lockout (5,000 employees behind one IP).
+ * - When userId is absent: fall back to IP-based limiting.
+ *   This should ONLY happen for truly unauthenticated paths (e.g., health).
+ *
+ * @param request  - The incoming HTTP request.
  * @param endpoint - The rate limit bucket to check against.
+ * @param userId   - Verified user ID from JWT `sub` claim (preferred).
  */
 export async function enforceRateLimit(
   request: Request,
-  endpoint: EndpointKey
+  endpoint: EndpointKey,
+  userId?: string
 ): Promise<void> {
   const limiter = limiterMap[endpoint]();
-  const ip = getClientIp(request);
-  const { success } = await limiter.limit(ip);
+
+  // Primary: User-ID keyed (cryptographically verified identity)
+  // Fallback: IP keyed (secondary DDoS protection only)
+  const identifier = userId
+    ? `uid:${userId}`
+    : `ip:${getClientIp(request)}`;
+
+  const { success } = await limiter.limit(identifier);
 
   if (!success) {
     throw Errors.rateLimited();

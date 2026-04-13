@@ -62,7 +62,7 @@ describe('vectorClient', () => {
       const vectors = Array.from({ length: 5 }, (_, i) => ({
         id: `chunk-${i}`,
         vector: [0.1, 0.2, 0.3],
-        metadata: { source: 'test.pdf', chunkIndex: i, totalChunks: 5, text: `text-${i}` },
+        metadata: { source: 'test.pdf', chunkIndex: i, totalChunks: 5, text: `text-${i}`, parentMacroId: 'macro-test.pdf-0', macroText: 'full section text' },
       }));
 
       await upsertVectors('session-123', vectors);
@@ -77,7 +77,7 @@ describe('vectorClient', () => {
       const vectors = Array.from({ length: 250 }, (_, i) => ({
         id: `chunk-${i}`,
         vector: [0.1],
-        metadata: { source: 'big.pdf', chunkIndex: i, totalChunks: 250, text: `t-${i}` },
+        metadata: { source: 'big.pdf', chunkIndex: i, totalChunks: 250, text: `t-${i}`, parentMacroId: `macro-big.pdf-${Math.floor(i / 30)}`, macroText: 'macro' },
       }));
 
       await upsertVectors('session-456', vectors);
@@ -95,7 +95,7 @@ describe('vectorClient', () => {
   describe('queryVectors', () => {
     it('queries the correct namespace with topK', async () => {
       mockQuery.mockResolvedValueOnce([
-        { id: 'c-0', score: 0.95, metadata: { source: 'doc.pdf', chunkIndex: 0, totalChunks: 1, text: 'hello' } },
+        { id: 'c-0', score: 0.95, metadata: { source: 'doc.pdf', chunkIndex: 0, totalChunks: 1, text: 'hello', parentMacroId: 'macro-doc.pdf-0', macroText: 'section text' } },
       ]);
 
       const results = await queryVectors('session-789', [0.1, 0.2], 5);
@@ -113,7 +113,7 @@ describe('vectorClient', () => {
     it('filters out results with null metadata', async () => {
       mockQuery.mockResolvedValueOnce([
         { id: 'c-0', score: 0.9, metadata: null },
-        { id: 'c-1', score: 0.8, metadata: { source: 'a.pdf', chunkIndex: 0, totalChunks: 1, text: 'ok' } },
+        { id: 'c-1', score: 0.8, metadata: { source: 'a.pdf', chunkIndex: 0, totalChunks: 1, text: 'ok', parentMacroId: 'macro-a.pdf-0', macroText: 'section' } },
       ]);
 
       const results = await queryVectors('s', [0.1], 5);

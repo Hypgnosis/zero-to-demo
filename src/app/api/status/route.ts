@@ -2,7 +2,9 @@
  * ═══════════════════════════════════════════════════════════════════
  * GET /api/status?jobId=<uuid>
  *
- * Polling endpoint for ingestion job status.
+ * Polling endpoint for ingestion job status (Phase 1 Hardened).
+ * 1. AUTHENTICATES via JWT PEP (Finding 1 Remedy).
+ * 2. Rate-limits by User-ID (Finding 4 Remedy).
  * Returns { jobId, sessionId, status, totalChunks?, error? }
  * ═══════════════════════════════════════════════════════════════════
  */
@@ -10,14 +12,18 @@
 import { NextResponse } from 'next/server';
 
 import { withErrorHandler, Errors } from '@/lib/errors';
+import { authenticateRequest } from '@/lib/auth';
 import { enforceRateLimit } from '@/lib/rateLimit';
 import { getJob } from '@/lib/redis';
 import { StatusQuerySchema } from '@/lib/validation';
 import type { StatusResponse } from '@/lib/types';
 
 export const GET = withErrorHandler(async (req: Request) => {
-  // 1. Rate limit
-  await enforceRateLimit(req, 'status');
+  // 1. AUTHENTICATE — Implicit Deny (Finding 1)
+  const claims = await authenticateRequest(req);
+
+  // 2. Rate limit by User-ID (Finding 4)
+  await enforceRateLimit(req, 'status', claims.userId);
 
   // 2. Validate query params
   const url = new URL(req.url);

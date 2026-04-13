@@ -16,6 +16,7 @@ process.env.UPSTASH_REDIS_REST_URL = 'https://mock-redis.upstash.io';
 process.env.UPSTASH_REDIS_REST_TOKEN = 'mock-redis-token';
 process.env.UPSTASH_VECTOR_REST_URL = 'https://mock.upstash.io';
 process.env.UPSTASH_VECTOR_REST_TOKEN = 'mock-token';
+process.env.AXIOM_AUTH_BYPASS = 'true';
 
 /* ─── Mocks ───────────────────────────────────────────────────── */
 
@@ -23,9 +24,18 @@ vi.mock('@/lib/vectorClient', () => ({
   namespaceHasVectors: vi.fn().mockResolvedValue(true),
 }));
 
+// Mock auth PEP (Phase 1)
+vi.mock('@/lib/auth', () => ({
+  authenticateRequest: vi.fn().mockResolvedValue({
+    userId: 'dev-user-001',
+    email: 'dev@axiom.local',
+  }),
+}));
+
 vi.mock('@/lib/redis', () => ({
-  getSession: vi.fn().mockResolvedValue({
-    id: '550e8400-e29b-41d4-a716-446655440000',
+  validateSessionOwnership: vi.fn().mockResolvedValue({
+    sessionId: '550e8400-e29b-41d4-a716-446655440000',
+    userId: 'dev-user-001',
     status: 'active',
     createdAt: new Date().toISOString(),
   }),

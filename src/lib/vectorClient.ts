@@ -1,5 +1,6 @@
 import { Index } from '@upstash/vector';
 import { withRetry } from './retry';
+import { Errors } from '@/lib/errors';
 import type { VectorMetadata } from './types';
 
 /** Upstash requires metadata with string index signature. */
@@ -15,9 +16,7 @@ function getVectorIndex(): Index {
     const token = process.env.UPSTASH_VECTOR_REST_TOKEN;
 
     if (!url || !token) {
-      throw new Error(
-        'UPSTASH_VECTOR_REST_URL and UPSTASH_VECTOR_REST_TOKEN must be set.'
-      );
+      throw Errors.configMissing('UPSTASH_VECTOR_REST_URL and/or UPSTASH_VECTOR_REST_TOKEN');
     }
 
     vectorIndex = new Index({ url, token });

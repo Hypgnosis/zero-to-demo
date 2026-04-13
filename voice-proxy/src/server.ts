@@ -2,13 +2,24 @@
  * ═══════════════════════════════════════════════════════════════════
  * AXIOM-0 — Voice Proxy Server (Cloud Run)
  *
+ * Phase 3: Infrastructure Hardened
+ *
  * Fastify WebSocket server that:
  * 1. Accepts client WS connections from the frontend.
- * 2. Fetches session context from Upstash Vector.
- * 3. Opens a WS connection to Gemini Live API.
- * 4. Bridges audio bidirectionally.
+ * 2. Verifies JWT ticket signed by Axiom-0 backend.
+ * 3. Fetches session context from Upstash Vector.
+ * 4. Opens a WS connection to Gemini Live API.
+ * 5. Bridges audio bidirectionally.
  *
- * The API key NEVER leaves this server.
+ * Security:
+ * - The Google API key NEVER leaves this server.
+ * - VOICE_PROXY_SECRET is REQUIRED — fail-closed on startup (process.exit).
+ * - JWT tickets are short-lived (5m) and single-use.
+ * - Health endpoint stripped of model metadata (anti-recon).
+ *
+ * Finding 5 Remedy:
+ * - Deploy with --ingress=internal-and-cloud-load-balancing
+ * - Frontend reaches proxy ONLY via backend-assigned endpoint.
  * ═══════════════════════════════════════════════════════════════════
  */
 
@@ -34,7 +45,9 @@ const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
 const VOICE_MODEL = process.env.VOICE_MODEL || 'models/gemini-2.5-flash-native-audio-latest';
 const UPSTASH_VECTOR_REST_URL = process.env.UPSTASH_VECTOR_REST_URL;
 const UPSTASH_VECTOR_REST_TOKEN = process.env.UPSTASH_VECTOR_REST_TOKEN;
-const VOICE_PROXY_SECRET = process.env.VOICE_PROXY_SECRET || process.env.UPSTASH_REDIS_REST_TOKEN;
+// Finding 7 Remedy: VOICE_PROXY_SECRET is strictly REQUIRED.
+// NO FALLBACK to UPSTASH_REDIS_REST_TOKEN — separate trust boundaries.
+const VOICE_PROXY_SECRET = process.env.VOICE_PROXY_SECRET;
 const MAX_CONTEXT_CHUNKS = 30;
 
 /* ─── Validation ──────────────────────────────────────────────── */
@@ -50,8 +63,29 @@ if (!UPSTASH_VECTOR_REST_URL || !UPSTASH_VECTOR_REST_TOKEN) {
 }
 
 if (!VOICE_PROXY_SECRET) {
-  console.error('FATAL: VOICE_PROXY_SECRET or UPSTASH_REDIS_REST_TOKEN must be set for JWT verification.');
+  console.error(
+    'FATAL: VOICE_PROXY_SECRET must be set. ' +
+    'Do NOT fall back to UPSTASH_REDIS_REST_TOKEN — these are separate trust boundaries.'
+  );
   process.exit(1);
+}
+
+// ── Secret Collision Audit ────────────────────────────────────
+// If a lazy operator copies the Redis token as the proxy secret,
+// we fail closed rather than silently sharing credential surfaces.
+const collisionTargets = [
+  { name: 'UPSTASH_REDIS_REST_TOKEN', value: process.env.UPSTASH_REDIS_REST_TOKEN },
+  { name: 'QSTASH_CURRENT_SIGNING_KEY', value: process.env.QSTASH_CURRENT_SIGNING_KEY },
+];
+
+for (const target of collisionTargets) {
+  if (target.value && VOICE_PROXY_SECRET === target.value) {
+    console.error(
+      `FATAL: VOICE_PROXY_SECRET must NOT be identical to ${target.name}. ` +
+      'These are separate trust boundaries. Generate a unique secret: openssl rand -hex 32'
+    );
+    process.exit(1);
+  }
 }
 
 /* ─── Upstash Vector Client ──────────────────────────────────── */
@@ -97,10 +131,15 @@ const app = Fastify({ logger: true });
 
 app.register(websocket);
 
-/* ─── Health Check ────────────────────────────────────────────── */
+/* ─── Health Check (Phase 3: Stripped of Metadata) ────────────── */
 
+/**
+ * Minimal health probe for Cloud Run liveness/readiness checks.
+ * Finding 5 Remedy: NO model names, versions, or config data.
+ * Leaking the model name enables targeted prompt injection research.
+ */
 app.get('/health', async () => {
-  return { status: 'ok', model: VOICE_MODEL };
+  return { status: 'ok' };
 });
 
 /* ─── WebSocket Endpoint ──────────────────────────────────────── */

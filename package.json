@@ -23,7 +23,6 @@
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.37.0",
     "@upstash/vector": "^1.2.3",
-    "@vercel/blob": "^2.3.3",
     "framer-motion": "^12.38.0",
     "jose": "^6.2.2",
     "lucide-react": "^0.577.0",

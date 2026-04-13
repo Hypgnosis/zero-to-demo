@@ -15,16 +15,24 @@ process.env.UPSTASH_VECTOR_REST_URL = 'https://mock.upstash.io';
 process.env.UPSTASH_VECTOR_REST_TOKEN = 'mock-token';
 process.env.UPSTASH_REDIS_REST_URL = 'https://mock-redis.upstash.io';
 process.env.UPSTASH_REDIS_REST_TOKEN = 'mock-redis-token';
+process.env.AXIOM_AUTH_BYPASS = 'true';
 
 /* ─── Mocks ───────────────────────────────────────────────────── */
 
-// Mock vectorClient
+// Mock vectorClient (Phase 4: hierarchical metadata)
 vi.mock('@/lib/vectorClient', () => ({
   queryVectors: vi.fn().mockResolvedValue([
     {
-      id: 'chunk-0',
+      id: 'micro-0',
       score: 0.92,
-      metadata: { source: 'catalog.pdf', chunkIndex: 0, totalChunks: 1, text: 'Widget costs $50 per unit.' },
+      metadata: {
+        source: 'catalog.pdf',
+        chunkIndex: 0,
+        totalChunks: 3,
+        text: 'Widget costs $50 per unit.',
+        parentMacroId: 'macro-catalog.pdf-0',
+        macroText: 'Product Catalog\n\n| Part | Price |\n|---|---|\n| Widget | $50 |\n| Sprocket | $75 |',
+      },
     },
   ]),
   namespaceHasVectors: vi.fn().mockResolvedValue(true),
@@ -51,6 +59,24 @@ vi.mock('@google/genai', () => {
     },
   };
 });
+
+// Mock auth PEP (Phase 1)
+vi.mock('@/lib/auth', () => ({
+  authenticateRequest: vi.fn().mockResolvedValue({
+    userId: 'dev-user-001',
+    email: 'dev@axiom.local',
+  }),
+}));
+
+// Mock session ownership (Phase 1)
+vi.mock('@/lib/redis', () => ({
+  validateSessionOwnership: vi.fn().mockResolvedValue({
+    sessionId: '550e8400-e29b-41d4-a716-446655440000',
+    userId: 'dev-user-001',
+    status: 'active',
+    createdAt: new Date().toISOString(),
+  }),
+}));
 
 // Mock rate limiter (actual export name)
 vi.mock('@/lib/rateLimit', () => ({

@@ -2,9 +2,14 @@
  * ═══════════════════════════════════════════════════════════════════
  * POST /api/voice
  *
- * Phase 5 — Voice Proxy Handshake
- * Returns the WebSocket proxy URL with session context.
- * The actual WebSocket runs on Cloud Run (not Vercel).
+ * Phase 5 — Voice Proxy Handshake (Phase 1 Hardened)
+ * 1. AUTHENTICATES via JWT PEP (Finding 1 Remedy).
+ * 2. Validates session ownership.
+ * 3. Signs a short-lived (5m) JWT ticket for the Cloud Run proxy.
+ * 4. Returns the WebSocket proxy URL with embedded ticket.
+ *
+ * Finding 7 Remedy: VOICE_PROXY_SECRET is now REQUIRED.
+ * No fallback to UPSTASH_REDIS_REST_TOKEN — fail closed.
  * ═══════════════════════════════════════════════════════════════════
  */
 
@@ -12,12 +17,16 @@ import { NextResponse } from 'next/server';
 import { SignJWT } from 'jose';
 
 import { withErrorHandler, Errors } from '@/lib/errors';
+import { authenticateRequest } from '@/lib/auth';
 import { VoiceHandshakeSchema } from '@/lib/validation';
-import { getSession } from '@/lib/redis';
+import { validateSessionOwnership } from '@/lib/redis';
 import { namespaceHasVectors } from '@/lib/vectorClient';
 
 export const POST = withErrorHandler(async (req: Request) => {
-  // 1. Validate request
+  // 1. AUTHENTICATE — Implicit Deny (Finding 1)
+  const claims = await authenticateRequest(req);
+
+  // 2. Validate request
   const body = await req.json();
   const parseResult = VoiceHandshakeSchema.safeParse(body);
 
@@ -27,28 +36,29 @@ export const POST = withErrorHandler(async (req: Request) => {
 
   const { sessionId, lang } = parseResult.data;
 
-  // 2. Verify session exists
-  const session = await getSession(sessionId);
-  if (!session) {
-    throw Errors.notFound('Session');
-  }
+  // 3. Validate session ownership
+  await validateSessionOwnership(sessionId, claims.userId);
 
-  // 3. Verify namespace has vectors
+  // 4. Verify namespace has vectors
   const hasVectors = await namespaceHasVectors(sessionId);
   if (!hasVectors) {
     throw Errors.noVectorData();
   }
 
-  // 4. Get voice proxy URL
+  // 5. Get voice proxy URL
   const proxyUrl = process.env.VOICE_PROXY_URL;
   if (!proxyUrl) {
     throw Errors.configMissing('VOICE_PROXY_URL');
   }
 
-  // 5. Sign a short-lived (5m) JWT ticket for the Cloud Run proxy
-  const secret = process.env.VOICE_PROXY_SECRET || process.env.UPSTASH_REDIS_REST_TOKEN;
+  // 6. Sign a short-lived (5m) JWT ticket for the Cloud Run proxy.
+  //    Finding 7 Remedy: VOICE_PROXY_SECRET is REQUIRED.
+  //    NO FALLBACK to UPSTASH_REDIS_REST_TOKEN — separate trust boundaries.
+  const secret = process.env.VOICE_PROXY_SECRET;
   if (!secret) {
-    throw Errors.configMissing('VOICE_PROXY_SECRET');
+    throw Errors.configMissing(
+      'VOICE_PROXY_SECRET (dedicated secret required — cannot reuse Redis credentials)'
+    );
   }
   const secretKey = new TextEncoder().encode(secret);
   

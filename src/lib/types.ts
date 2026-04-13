@@ -9,6 +9,7 @@
 
 export interface DemoSession {
   sessionId: string;
+  userId: string;      // Verified owner (from JWT `sub` claim). Phase 1: Zero-Trust Identity.
   createdAt: string;   // ISO 8601
   expiresAt: string;   // ISO 8601 — TTL: +4 hours
   status: SessionStatus;
@@ -21,7 +22,9 @@ export type SessionStatus = 'active' | 'expired' | 'purged';
 export interface IngestionJob {
   jobId: string;
   sessionId: string;
-  blobUrl: string;
+  /** Google GenAI File API reference. Phase 2: Ghost Pipeline. */
+  genAiFileName: string;
+  /** Original file name for display/logging purposes only. */
   fileName: string;
   status: JobStatus;
   totalChunks?: number;
@@ -75,13 +78,19 @@ export interface StatusResponse {
   error?: string;
 }
 
-/* ─── Vector ──────────────────────────────────────────────────── */
+/* ─── Vector (Phase 4: Hierarchical RAG) ─────────────────────── */
 
 export interface VectorMetadata {
   source: string;
   chunkIndex: number;
   totalChunks: number;
+  /** The micro-chunk text used for search matching. */
   text: string;
+  /** Phase 4: Parent macro chunk ID for deduplication during retrieval. */
+  parentMacroId: string;
+  /** Phase 4: Full structural context from the parent macro chunk.
+   *  Injected into Gemini's system prompt to preserve table/section integrity. */
+  macroText: string;
 }
 
 export interface VectorRecord {

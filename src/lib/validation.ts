@@ -47,7 +47,8 @@ export const StatusQuerySchema = z.object({
 export const ProcessDocumentPayloadSchema = z.object({
   jobId: z.string().uuid(),
   sessionId: z.string().uuid(),
-  blobUrl: z.string().url(),
+  /** Google GenAI File API reference (e.g., "files/abc123"). Phase 2: Ghost Pipeline. */
+  genAiFileName: z.string().min(1),
   fileName: z.string().min(1),
 });
 
