@@ -68,3 +68,6 @@ ehthumbs.db
 # Gemini / AI agent working files
 .gemini/
 .agents/
+
+# Local Netlify folder
+.netlify
