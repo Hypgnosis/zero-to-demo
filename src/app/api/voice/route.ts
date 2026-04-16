@@ -36,11 +36,11 @@ export const POST = withErrorHandler(async (req: Request) => {
 
   const { sessionId, lang } = parseResult.data;
 
-  // 3. Validate session ownership
-  await validateSessionOwnership(sessionId, claims.userId);
+  // 3. Validate session ownership — returns session with mode
+  const session = await validateSessionOwnership(sessionId, claims.userId);
 
-  // 4. Verify namespace has vectors
-  const hasVectors = await namespaceHasVectors(sessionId);
+  // 4. Verify namespace has vectors (on the correct physical index)
+  const hasVectors = await namespaceHasVectors(sessionId, session.mode);
   if (!hasVectors) {
     throw Errors.noVectorData();
   }

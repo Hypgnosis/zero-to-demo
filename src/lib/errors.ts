@@ -45,6 +45,10 @@ export const Errors = {
   notFound: (resource: string) =>
     new ApiError(404, 'NOT_FOUND', `${resource} not found.`),
 
+  /** Phase 5: Session already exists with a different mode. Mode is immutable. */
+  sessionConflict: (sessionId: string) =>
+    new ApiError(409, 'SESSION_CONFLICT', `Session ${sessionId} already exists. Mode is immutable.`),
+
   rateLimited: () =>
     new ApiError(429, 'RATE_LIMITED', 'Too many requests. Please try again later.'),
 
@@ -53,6 +57,13 @@ export const Errors = {
 
   configMissing: (key: string) =>
     new ApiError(500, 'CONFIG_MISSING', `Server configuration error: ${key} is not set.`),
+
+  /**
+   * Phase 5: Hard security error. Indicates corrupted system state.
+   * This should NEVER be caught and retried — it demands manual investigation.
+   */
+  securityViolation: (message: string) =>
+    new ApiError(500, 'SECURITY_VIOLATION', `[SECURITY] ${message}`),
 
   noVectorData: () =>
     new ApiError(400, 'NO_VECTOR_DATA', 'No catalog data found for this session. Upload a PDF first.'),

@@ -2,25 +2,28 @@
  * ═══════════════════════════════════════════════════════════════════
  * POST /api/webhooks/process
  *
- * Phase 4 — Ghost Pipeline Worker + Hierarchical RAG
+ * Phase 5 — Dual-Mode Document Processor (Hierarchical RAG)
  *
  * ZERO-RETENTION + INDUSTRIAL PRECISION:
  * No Vercel Blob. No file download from our infrastructure.
  * Uses Small-to-Big hierarchical chunking for enterprise RAG.
  *
+ * MODE ROUTING:
+ * The `mode` field in the QStash payload determines which physical
+ * vector index receives the embedded chunks. Governed chunks also
+ * receive an `encryptionVersion` tag for BYOK compliance.
+ *
  * Pipeline:
- * 1. Validate QStash payload (genAiFileName reference).
+ * 1. Validate QStash payload (includes mode).
  * 2. Check if GenAI file exists (2 AM resilience guard).
  * 3. Poll for ACTIVE state.
  * 4. Extract text using Gemini multimodal.
  * 5. HIERARCHICAL SPLIT: macro chunks (structural) + micro chunks (search).
  * 6. Embed MICRO chunks only (500 chars for precise matching).
- * 7. Upsert vectors with macro parent text in metadata (one-shot retrieval).
- * 8. Update job status.
- * 9. MANDATORY PURGE: Delete GenAI file in `finally` block.
- *
- * Finding 2 Remedy: Ghost Pipeline (Phase 2).
- * Finding 6 Remedy: Hierarchical RAG — tables never decapitated (Phase 4).
+ * 7. Tag governed metadata with encryptionVersion.
+ * 8. Upsert vectors to mode-specific physical index.
+ * 9. Update job status.
+ * 10. MANDATORY PURGE: Delete GenAI file in `finally` block (BOTH modes).
  * ═══════════════════════════════════════════════════════════════════
  */
 
@@ -32,6 +35,7 @@ import { updateJob } from '@/lib/redis';
 import { upsertVectors } from '@/lib/vectorClient';
 import { embedTexts, getGenAIClient } from '@/lib/embeddings';
 import { splitHierarchical } from '@/lib/textSplitter';
+import { encrypt, ensureKeyInitialized } from '@/lib/kms';
 import type { VectorMetadata } from '@/lib/types';
 
 /* ─── Vercel Config ───────────────────────────────────────────── */
@@ -47,10 +51,17 @@ const FILE_POLL_MAX_ATTEMPTS = 90; // 3 minutes max wait
 
 /**
  * Upstash Vector metadata size limit is ~48KB.
- * A 15K-char macro block is ~15-30KB depending on encoding.
- * We cap at 40KB to leave headroom for other metadata fields.
+ * Cap at 30KB for plaintext to allow for ~33% Base64 encryption overhead
+ * and additional metadata fields.
  */
-const MAX_MACRO_TEXT_BYTES = 40_000;
+const MAX_MACRO_TEXT_BYTES = 30_000;
+
+/**
+ * Phase 5: Default encryption version for governed chunks.
+ * In production, this would be derived from the tenant's key vault.
+ * For now, v1 signals "first-generation encryption applied".
+ */
+const DEFAULT_ENCRYPTION_VERSION = 'v1';
 
 /* ─── Route Handler ───────────────────────────────────────────── */
 
@@ -72,20 +83,17 @@ export const POST = verifySignatureAppRouter(async (req: Request): Promise<Respo
       );
     }
 
-    const { jobId: jid, sessionId, genAiFileName, fileName } = parseResult.data;
+    const { jobId: jid, sessionId, genAiFileName, fileName, mode } = parseResult.data;
     jobId = jid;
     genAiFileToCleanup = genAiFileName;
 
-    console.log(`[Process] Starting: job=${jobId}, file=${fileName}, genAiRef=${genAiFileName}`);
+    console.log(`[Process] Starting [${mode}]: job=${jobId}, file=${fileName}, genAiRef=${genAiFileName}`);
 
     // 2. Update status to 'processing'
     await updateJob(jobId, { status: 'processing' });
 
     // ─────────────────────────────────────────────────────────────
     // 3. 2 AM RESILIENCE: Verify GenAI file still exists.
-    //    On QStash retry, the file might have been purged by the
-    //    previous attempt's `finally` block or by Google's 48h TTL.
-    //    If the file is gone, fail fast with a clear error.
     // ─────────────────────────────────────────────────────────────
     let polledFile;
     try {
@@ -98,7 +106,7 @@ export const POST = verifySignatureAppRouter(async (req: Request): Promise<Respo
       );
     }
 
-    // 4. Poll until file is ACTIVE (if still processing)
+    // 4. Poll until file is ACTIVE
     let fileState = polledFile.state;
     let attempts = 0;
 
@@ -116,7 +124,6 @@ export const POST = verifySignatureAppRouter(async (req: Request): Promise<Respo
     console.log(`[Process] GenAI file ACTIVE after ${attempts} polls.`);
 
     // 5. Extract text using Gemini multimodal
-    //    Uses fileData reference — NO data downloaded to our servers.
     const polledForUri = await ai.files.get({ name: genAiFileName });
     const extractionStart = Date.now();
     const extractionResult = await ai.models.generateContent({
@@ -152,30 +159,24 @@ RULES:
     const extractionTimeMs = Date.now() - extractionStart;
 
     // ─── CAD/Graphics PDF Guard ───────────────────────────────────
-    // If Gemini returns empty or near-empty text, the PDF is likely
-    // vector graphics (CAD drawings, scanned blueprints without OCR).
-    // Fail with a specific, actionable error — not a generic 500.
     if (!extractedText || extractedText.length < 50) {
       const isCompletelyEmpty = !extractedText || extractedText.trim().length === 0;
       throw new Error(
         isCompletelyEmpty
           ? 'Unsupported PDF content: This file appears to contain only graphics or images (e.g., CAD drawings). ' +
-            'Axiom-0 requires text-based documents. Please upload a text-searchable PDF.'
+            'Axiom requires text-based documents. Please upload a text-searchable PDF.'
           : `Extraction returned insufficient text (${extractedText.length} chars). ` +
             'The file may be primarily images, scanned without OCR, or corrupt.'
       );
     }
 
     console.info(
-      `[Process] ⏱️ TELEMETRY: extraction_time_ms=${extractionTimeMs}, ` +
+      `[Process] ⏱️ TELEMETRY [${mode}]: extraction_time_ms=${extractionTimeMs}, ` +
       `extracted_chars=${extractedText.length}`
     );
 
     // ═══════════════════════════════════════════════════════════════
     // 6. HIERARCHICAL SPLIT (Phase 4: Small-to-Big)
-    //    - Macro chunks: ~15K chars, structural sections/tables
-    //    - Micro chunks: ~500 chars, high-density search targets
-    //    - Each micro carries its parent macro's full text
     // ═══════════════════════════════════════════════════════════════
     const { macroChunks, microChunks } = splitHierarchical(extractedText, fileName);
 
@@ -190,23 +191,35 @@ RULES:
     const embeddingTimeMs = Date.now() - embeddingStart;
 
     console.info(
-      `[Process] ⏱️ TELEMETRY: embedding_time_ms=${embeddingTimeMs}, ` +
+      `[Process] ⏱️ TELEMETRY [${mode}]: embedding_time_ms=${embeddingTimeMs}, ` +
       `embedding_tokens_count=${microTexts.reduce((sum, t) => sum + Math.ceil(t.length / 4), 0)}, ` +
       `micro_chunks=${microChunks.length}`
     );
 
-    // 8. Prepare vector records with hierarchical metadata
-    //    parentMacroId + macroText travel WITH each vector.
-    //    At query time, the chat route deduplicates by parentMacroId
-    //    and injects the full macroText into Gemini's context.
+    // ═══════════════════════════════════════════════════════════════
+    // 8. DATA SOVEREIGNTY: Initialize Encryption Key
     //
-    //    METADATA BLOAT GUARD: Truncate macroText to MAX_MACRO_TEXT_BYTES
-    //    to prevent Upstash 413 Payload Too Large on upsert.
+    // For governed mode, we ensure a v1 DEK (Data Encryption Key)
+    // exists for this session. The key is stored in Redis under
+    // envelope encryption (multi-tenant protection).
+    // ═══════════════════════════════════════════════════════════════
+    let encryptionKey: string | null = null;
+    if (mode === 'governed') {
+      encryptionKey = await ensureKeyInitialized(sessionId, DEFAULT_ENCRYPTION_VERSION);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 9. PREPARE VECTOR RECORDS WITH MODE-AWARE METADATA
+    //
+    //    Governed chunks are ENCRYPTED (AES-256-GCM) before upload.
+    //    Ephemeral chunks remain PLAINTEXT for demo performance.
+    // ═══════════════════════════════════════════════════════════════
     const vectors = microChunks.map((micro, i) => {
       let macroText = micro.parentMacroText;
+      let microText = micro.text;
+
       const macroBytes = new TextEncoder().encode(macroText).length;
       if (macroBytes > MAX_MACRO_TEXT_BYTES) {
-        // Truncate with a marker so the chat route knows context was clipped
         const truncated = macroText.slice(0, MAX_MACRO_TEXT_BYTES - 100);
         macroText = truncated + '\n\n[... section truncated for storage limits ...]';
         console.warn(
@@ -214,24 +227,39 @@ RULES:
         );
       }
 
+      // Apply Phase 4 Encryption for Governed Mode
+      if (mode === 'governed' && encryptionKey) {
+        try {
+          microText = encrypt(microText, encryptionKey);
+          macroText = encrypt(macroText, encryptionKey);
+        } catch (encErr) {
+          console.error(`[Process] 🚨 Encryption failed for chunk ${i}:`, encErr);
+          throw new Error('Critical failure: Could not encrypt governed data.');
+        }
+      }
+
+      const metadata: VectorMetadata = {
+        source: fileName,
+        chunkIndex: micro.metadata.chunkIndex,
+        totalChunks: micro.metadata.totalChunks,
+        text: microText,
+        parentMacroId: micro.parentMacroId,
+        macroText,
+        // Phase 5: BYOK tagging. Governed = versioned. Ephemeral = undefined.
+        encryptionVersion: mode === 'governed' ? DEFAULT_ENCRYPTION_VERSION : undefined,
+      };
+
       return {
         id: `${jobId}-micro-${i}`,
         vector: embeddings[i]!,
-        metadata: {
-          source: fileName,
-          chunkIndex: micro.metadata.chunkIndex,
-          totalChunks: micro.metadata.totalChunks,
-          text: micro.text,
-          parentMacroId: micro.parentMacroId,
-          macroText,
-        } satisfies VectorMetadata,
+        metadata,
       };
     });
 
-    // 9. Upsert to Upstash Vector (session-scoped namespace)
-    await upsertVectors(sessionId, vectors);
+    // 9. Upsert to mode-specific physical vector index
+    await upsertVectors(sessionId, mode, vectors);
 
-    console.log(`[Process] Upserted ${vectors.length} vectors to namespace: ${sessionId}`);
+    console.log(`[Process] Upserted ${vectors.length} vectors [${mode}] for session: ${sessionId}`);
 
     // 10. Update job as complete
     await updateJob(jobId, {
@@ -240,9 +268,10 @@ RULES:
       completedAt: new Date().toISOString(),
     });
 
-    console.log(`[Process] ✅ Job ${jobId} complete (${macroChunks.length} macros, ${microChunks.length} micros).`);
+    console.log(`[Process] ✅ Job ${jobId} [${mode}] complete (${macroChunks.length} macros, ${microChunks.length} micros).`);
     return NextResponse.json({
       status: 'complete',
+      mode,
       macroChunks: macroChunks.length,
       microChunks: microChunks.length,
     });
@@ -250,7 +279,6 @@ RULES:
   } catch (error: unknown) {
     console.error(`[Process] ❌ Job ${jobId} failed:`, error);
 
-    // Update job as failed
     try {
       if (jobId !== 'unknown') {
         await updateJob(jobId, {
@@ -270,20 +298,15 @@ RULES:
     // ═══════════════════════════════════════════════════════════════
     // MANDATORY PURGE — The Legal Shield (Cryptographic Erasure)
     //
-    // This block runs regardless of success or failure.
-    // It eliminates the GenAI file from Google's temporary storage.
-    // Without this, proprietary data lingers for up to 48 hours.
-    //
-    // If this block fails (network partition, quota error),
-    // the cleanup cron provides a secondary sweep (Phase 2 defense).
+    // This block runs regardless of success or failure, for BOTH modes.
+    // GenAI files are TRANSIENT in both ephemeral and governed pipelines.
+    // The permanent store is the vector index, not the file cache.
     // ═══════════════════════════════════════════════════════════════
     if (genAiFileToCleanup) {
       try {
         await ai.files.delete({ name: genAiFileToCleanup });
         console.log(`[Process] 🗑️ GenAI file purged: ${genAiFileToCleanup}`);
       } catch (cleanupErr) {
-        // NON-FATAL: The cleanup cron will catch orphans.
-        // Log as ERROR (not warn) because this is a data sovereignty concern.
         console.error(
           `[Process] ⚠️ GenAI file cleanup FAILED for ${genAiFileToCleanup}. ` +
           `Cleanup cron will handle orphan purge.`,

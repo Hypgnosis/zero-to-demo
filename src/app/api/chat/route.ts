@@ -2,23 +2,23 @@
  * ═══════════════════════════════════════════════════════════════════
  * POST /api/chat
  *
- * Phase 4 — Enterprise RAG Chat (Hierarchical Small-to-Big Retrieval)
+ * Phase 5 — Dual-Mode Enterprise RAG Chat (Hierarchical Small-to-Big)
  *
  * Pipeline:
- * 1. AUTHENTICATES via JWT PEP (Finding 1 Remedy).
- * 2. Rate-limits by User-ID (Finding 4 Remedy).
+ * 1. AUTHENTICATES via JWT PEP.
+ * 2. Rate-limits by User-ID.
  * 3. Validates request via Zod.
- * 4. Validates session ownership.
+ * 4. Validates session ownership (returns session with mode).
  * 5. Embeds the user's latest message (query vector).
- * 6. QUERIES micro-chunks (TOP_K=10) for precise matching.
+ * 6. QUERIES micro-chunks on the MODE-SPECIFIC physical index.
  * 7. DEDUPLICATES by parentMacroId — collect unique macro sections.
  * 8. RECONSTRUCTS coherent context from full macro-chunk text.
  * 9. Constructs citation-enforced system prompt with structural context.
  * 10. Streams Gemini response.
  *
- * Finding 6 Remedy: Gemini receives complete structural sections,
- * not isolated 1000-char fragments. BOM tables, section headers,
- * and multi-column layouts arrive intact.
+ * The session's mode (ephemeral/governed) determines which physical
+ * vector index is queried. The chat route NEVER needs to resolve
+ * mode from a header — it reads it from the session object.
  * ═══════════════════════════════════════════════════════════════════
  */
 
@@ -32,6 +32,7 @@ import { ChatRequestSchema } from '@/lib/validation';
 import { validateSessionOwnership } from '@/lib/redis';
 import { embedText } from '@/lib/embeddings';
 import { queryVectors, namespaceHasVectors } from '@/lib/vectorClient';
+import { decryptChunks } from '@/lib/kms';
 
 /* ─── Constants ───────────────────────────────────────────────── */
 
@@ -48,10 +49,10 @@ const MICRO_TOP_K = 10;
 /* ─── Route Handler ───────────────────────────────────────────── */
 
 export const POST = withErrorHandler(async (req: Request) => {
-  // 1. AUTHENTICATE — Implicit Deny (Finding 1)
+  // 1. AUTHENTICATE — Implicit Deny
   const claims = await authenticateRequest(req);
 
-  // 2. Rate limit by User-ID (Finding 4)
+  // 2. Rate limit by User-ID
   await enforceRateLimit(req, 'chat', claims.userId);
 
   // 3. Validate request body
@@ -64,11 +65,12 @@ export const POST = withErrorHandler(async (req: Request) => {
 
   const { sessionId, messages } = parseResult.data;
 
-  // 4. Validate session ownership (prevents cross-user data access)
-  await validateSessionOwnership(sessionId, claims.userId);
+  // 4. Validate session ownership — returns session with mode
+  const session = await validateSessionOwnership(sessionId, claims.userId);
+  const { mode } = session;
 
-  // 5. Verify namespace has vectors
-  const hasVectors = await namespaceHasVectors(sessionId);
+  // 5. Verify namespace has vectors (on the correct physical index)
+  const hasVectors = await namespaceHasVectors(sessionId, mode);
   if (!hasVectors) {
     throw Errors.noVectorData();
   }
@@ -82,27 +84,47 @@ export const POST = withErrorHandler(async (req: Request) => {
   // 7. Embed the query
   const queryVector = await embedText(lastUserMessage.content);
 
-  // 8. Query micro-chunks (TOP_K=10 for precise matching)
-  const microResults = await queryVectors(sessionId, queryVector, MICRO_TOP_K);
+  // 8. Query micro-chunks on the MODE-SPECIFIC physical index
+  const microResults = await queryVectors(sessionId, mode, queryVector, MICRO_TOP_K);
 
   // ═══════════════════════════════════════════════════════════════
-  // 9. SMALL-TO-BIG RETRIEVAL (Phase 4: Finding 6 Remedy)
+  // 9. MULTI-VERSION DECRYPTION LAYER (Phase 3: 2 AM Risk Remedy)
   //
-  //    Searched micro-chunks for precision.
-  //    Now DEDUPLICATE by parentMacroId and inject the full
-  //    structural macro-chunk text into Gemini's context.
+  // For governed sessions, chunks may be encrypted with DIFFERENT
+  // key versions (e.g., v1 + v2 mixed during a key rotation).
+  // decryptChunks() resolves the correct key PER CHUNK and decrypts
+  // each one independently. Chunks with missing keys are gracefully
+  // skipped — never passed to the LLM as garbage.
   //
-  //    This ensures:
-  //    - Table headers stay with table data.
-  //    - Section context wraps individual data points.
-  //    - BOM relationships are never decapitated.
+  // For ephemeral sessions, decryption is a NO-OP passthrough.
+  // ═══════════════════════════════════════════════════════════════
+  let resolvedChunks: typeof microResults;
+
+  if (mode === 'governed') {
+    const decrypted = await decryptChunks(sessionId, microResults);
+    // Re-map decrypted text back to the original chunk shape for downstream processing
+    resolvedChunks = microResults
+      .filter((c) => decrypted.some((d) => d.vectorId === c.id))
+      .map((c) => {
+        const d = decrypted.find((d) => d.vectorId === c.id)!;
+        return {
+          ...c,
+          metadata: { ...c.metadata, text: d.text },
+        };
+      });
+  } else {
+    // Ephemeral mode: chunks are plaintext — no decryption overhead
+    resolvedChunks = microResults;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 10. SMALL-TO-BIG RETRIEVAL (Phase 4: Finding 6 Remedy)
   // ═══════════════════════════════════════════════════════════════
   const macroSections = new Map<string, { text: string; source: string; bestScore: number }>();
 
-  for (const result of microResults) {
+  for (const result of resolvedChunks) {
     const { parentMacroId, macroText, source } = result.metadata;
 
-    // Deduplicate: keep the highest-scoring version of each macro
     const existing = macroSections.get(parentMacroId);
     if (!existing || result.score > existing.bestScore) {
       macroSections.set(parentMacroId, {
@@ -114,7 +136,6 @@ export const POST = withErrorHandler(async (req: Request) => {
   }
 
   // 10. Build context block from deduplicated macro sections
-  //     Sorted by relevance score (highest first).
   const sortedMacros = Array.from(macroSections.entries())
     .sort((a, b) => b[1].bestScore - a[1].bestScore);
 
@@ -125,11 +146,12 @@ export const POST = withErrorHandler(async (req: Request) => {
     .join('\n\n═══════════════════════════════════════\n\n');
 
   console.log(
-    `[Chat] Small-to-Big: ${microResults.length} micro hits → ${macroSections.size} unique macro sections`
+    `[Chat] [${mode}] Small-to-Big: ${resolvedChunks.length} micro hits → ${macroSections.size} unique macro sections`
   );
 
   // 11. Construct system prompt with structural context
-  const systemPrompt = `You are Axiom-0, an enterprise intelligence engine built by High Archytech.
+  const engineName = mode === 'governed' ? 'Axiom-G' : 'Axiom-0';
+  const systemPrompt = `You are ${engineName}, an enterprise intelligence engine built by High Archytech.
 You answer questions ONLY using the provided catalog context. You are precise, authoritative, and concise.
 
 RULES:

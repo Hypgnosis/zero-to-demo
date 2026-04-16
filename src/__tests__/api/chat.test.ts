@@ -11,8 +11,10 @@ import { describe, it, expect, vi, beforeAll } from 'vitest';
 
 /* ─── Env Vars (must be set before imports) ───────────────────── */
 process.env.GOOGLE_API_KEY = 'test-key';
-process.env.UPSTASH_VECTOR_REST_URL = 'https://mock.upstash.io';
-process.env.UPSTASH_VECTOR_REST_TOKEN = 'mock-token';
+process.env.AXIOM_0_VECTOR_URL = 'https://mock-ephemeral.upstash.io';
+process.env.AXIOM_0_VECTOR_TOKEN = 'mock-ephemeral-token';
+process.env.AXIOM_G_VECTOR_URL = 'https://mock-governed.upstash.io';
+process.env.AXIOM_G_VECTOR_TOKEN = 'mock-governed-token';
 process.env.UPSTASH_REDIS_REST_URL = 'https://mock-redis.upstash.io';
 process.env.UPSTASH_REDIS_REST_TOKEN = 'mock-redis-token';
 process.env.AXIOM_AUTH_BYPASS = 'true';

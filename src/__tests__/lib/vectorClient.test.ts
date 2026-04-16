@@ -2,8 +2,12 @@
  * ═══════════════════════════════════════════════════════════════════
  * Unit Tests — src/lib/vectorClient.ts
  *
+ * Phase 5: Dual-Mode Architecture
+ *
  * Validates:
- * - Batched upsert (groups of 100)
+ * - Batched upsert with mode routing (ephemeral/governed)
+ * - BYOK validation gate (governed must have encryptionVersion)
+ * - Namespace prefix shield (eph_/gov_ prefixing)
  * - Retry integration on 429 errors
  * - Namespace isolation (query/delete)
  *
@@ -40,34 +44,48 @@ vi.mock('@upstash/vector', () => ({
   },
 }));
 
-// Set env vars before importing the module
-process.env.UPSTASH_VECTOR_REST_URL = 'https://mock.upstash.io';
-process.env.UPSTASH_VECTOR_REST_TOKEN = 'mock-token';
+// Set env vars before importing the module — TWO DISTINCT physical indexes
+process.env.AXIOM_0_VECTOR_URL = 'https://mock-ephemeral.upstash.io';
+process.env.AXIOM_0_VECTOR_TOKEN = 'mock-ephemeral-token';
+process.env.AXIOM_G_VECTOR_URL = 'https://mock-governed.upstash.io';
+process.env.AXIOM_G_VECTOR_TOKEN = 'mock-governed-token';
 
 import {
   upsertVectors,
   queryVectors,
   deleteNamespace,
   namespaceHasVectors,
+  resolveNamespace,
 } from '@/lib/vectorClient';
 import { withRetry } from '@/lib/retry';
+import { NAMESPACE_PREFIX } from '@/lib/types';
 
 describe('vectorClient', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
+  describe('resolveNamespace', () => {
+    it('prefixes ephemeral sessions with eph_', () => {
+      expect(resolveNamespace('abc-123', 'ephemeral')).toBe('eph_abc-123');
+    });
+
+    it('prefixes governed sessions with gov_', () => {
+      expect(resolveNamespace('abc-123', 'governed')).toBe('gov_abc-123');
+    });
+  });
+
   describe('upsertVectors', () => {
-    it('upserts a small batch in a single call', async () => {
+    it('upserts a small ephemeral batch in a single call', async () => {
       const vectors = Array.from({ length: 5 }, (_, i) => ({
         id: `chunk-${i}`,
         vector: [0.1, 0.2, 0.3],
         metadata: { source: 'test.pdf', chunkIndex: i, totalChunks: 5, text: `text-${i}`, parentMacroId: 'macro-test.pdf-0', macroText: 'full section text' },
       }));
 
-      await upsertVectors('session-123', vectors);
+      await upsertVectors('session-123', 'ephemeral', vectors);
 
-      expect(mockNamespace).toHaveBeenCalledWith('session-123');
+      expect(mockNamespace).toHaveBeenCalledWith(`${NAMESPACE_PREFIX.EPHEMERAL}session-123`);
       expect(withRetry).toHaveBeenCalledTimes(1);
       expect(mockUpsert).toHaveBeenCalledTimes(1);
       expect(mockUpsert.mock.calls[0]![0]).toHaveLength(5);
@@ -80,7 +98,7 @@ describe('vectorClient', () => {
         metadata: { source: 'big.pdf', chunkIndex: i, totalChunks: 250, text: `t-${i}`, parentMacroId: `macro-big.pdf-${Math.floor(i / 30)}`, macroText: 'macro' },
       }));
 
-      await upsertVectors('session-456', vectors);
+      await upsertVectors('session-456', 'ephemeral', vectors);
 
       expect(withRetry).toHaveBeenCalledTimes(3);
       expect(mockUpsert).toHaveBeenCalledTimes(3);
@@ -90,6 +108,33 @@ describe('vectorClient', () => {
       expect(mockUpsert.mock.calls[1]![0]).toHaveLength(100);
       expect(mockUpsert.mock.calls[2]![0]).toHaveLength(50);
     });
+
+    it('routes governed upserts to the governed namespace', async () => {
+      const vectors = [{
+        id: 'chunk-0',
+        vector: [0.1],
+        metadata: { source: 'doc.pdf', chunkIndex: 0, totalChunks: 1, text: 'hello', parentMacroId: 'macro-0', macroText: 'section', encryptionVersion: 'v1' },
+      }];
+
+      await upsertVectors('gov-session', 'governed', vectors);
+
+      expect(mockNamespace).toHaveBeenCalledWith(`${NAMESPACE_PREFIX.GOVERNED}gov-session`);
+    });
+
+    it('REJECTS governed vectors without encryptionVersion (BYOK gate)', async () => {
+      const vectors = [{
+        id: 'chunk-0',
+        vector: [0.1],
+        metadata: { source: 'doc.pdf', chunkIndex: 0, totalChunks: 1, text: 'hello', parentMacroId: 'macro-0', macroText: 'section' },
+        // encryptionVersion intentionally missing
+      }];
+
+      await expect(upsertVectors('gov-session', 'governed', vectors))
+        .rejects.toThrow(/BYOK compliance violation/);
+
+      // Verify NO upsert was attempted
+      expect(mockUpsert).not.toHaveBeenCalled();
+    });
   });
 
   describe('queryVectors', () => {
@@ -98,9 +143,9 @@ describe('vectorClient', () => {
         { id: 'c-0', score: 0.95, metadata: { source: 'doc.pdf', chunkIndex: 0, totalChunks: 1, text: 'hello', parentMacroId: 'macro-doc.pdf-0', macroText: 'section text' } },
       ]);
 
-      const results = await queryVectors('session-789', [0.1, 0.2], 5);
+      const results = await queryVectors('session-789', 'ephemeral', [0.1, 0.2], 5);
 
-      expect(mockNamespace).toHaveBeenCalledWith('session-789');
+      expect(mockNamespace).toHaveBeenCalledWith(`${NAMESPACE_PREFIX.EPHEMERAL}session-789`);
       expect(mockQuery).toHaveBeenCalledWith({
         vector: [0.1, 0.2],
         topK: 5,
@@ -116,16 +161,16 @@ describe('vectorClient', () => {
         { id: 'c-1', score: 0.8, metadata: { source: 'a.pdf', chunkIndex: 0, totalChunks: 1, text: 'ok', parentMacroId: 'macro-a.pdf-0', macroText: 'section' } },
       ]);
 
-      const results = await queryVectors('s', [0.1], 5);
+      const results = await queryVectors('s', 'ephemeral', [0.1], 5);
       expect(results).toHaveLength(1);
       expect(results[0]!.id).toBe('c-1');
     });
   });
 
   describe('deleteNamespace', () => {
-    it('resets the correct namespace', async () => {
-      await deleteNamespace('session-to-delete');
-      expect(mockNamespace).toHaveBeenCalledWith('session-to-delete');
+    it('resets the correct ephemeral namespace', async () => {
+      await deleteNamespace('session-to-delete', 'ephemeral');
+      expect(mockNamespace).toHaveBeenCalledWith(`${NAMESPACE_PREFIX.EPHEMERAL}session-to-delete`);
       expect(mockReset).toHaveBeenCalledTimes(1);
     });
   });
@@ -133,12 +178,12 @@ describe('vectorClient', () => {
   describe('namespaceHasVectors', () => {
     it('returns false when namespace is empty', async () => {
       mockRange.mockResolvedValueOnce({ vectors: [] });
-      expect(await namespaceHasVectors('empty-ns')).toBe(false);
+      expect(await namespaceHasVectors('empty-ns', 'ephemeral')).toBe(false);
     });
 
     it('returns true when namespace has vectors', async () => {
       mockRange.mockResolvedValueOnce({ vectors: [{ id: 'x' }] });
-      expect(await namespaceHasVectors('full-ns')).toBe(true);
+      expect(await namespaceHasVectors('full-ns', 'ephemeral')).toBe(true);
     });
   });
 });

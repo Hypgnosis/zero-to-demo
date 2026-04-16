@@ -1,25 +1,25 @@
 /**
  * ═══════════════════════════════════════════════════════════════════
- * AXIOM-0 — Upstash Redis Client
+ * AXIOM-0 / AXIOM-G — Upstash Redis Client
  *
- * Phase 3: Infrastructure Hardening (Finding 3 Remedy)
+ * Phase 5: Dual-Mode Architecture (Zero-Trust Architect V2)
  *
- * Session management now uses a dual-write pattern:
- * - SET:  session:{id} → JSON payload (with TTL for auto-purge)
- * - ZADD: session_expiry_index → score=expiryTimestamp, member=sessionId
+ * Session management uses dual-write pattern with NX atomicity:
+ * - SET session:{id} → JSON payload (NX: if not exists, else fail)
+ * - ZADD session_expiry_index → score=expiryTimestamp (ephemeral only)
  *
- * This replaces the O(N) KEYS scan with O(log N) ZRANGEBYSCORE.
- * At 100K sessions, KEYS blocks the event loop for seconds.
- * ZRANGEBYSCORE retrieves only expired entries in constant time.
+ * IMMUTABLE SESSION RULE (Architectural Condition #2):
+ * Once a session is created, its mode CANNOT change. The NX flag
+ * ensures that a second createSession call for the same ID returns
+ * null instead of overwriting. The caller must return 409 Conflict.
  *
- * The cleanup cron calls getExpiredSessionIds() and then
- * removeFromExpiryIndex() after purging each session.
+ * ZSET indexing: O(log N) via ZRANGEBYSCORE. No KEYS bomb.
  * ═══════════════════════════════════════════════════════════════════
  */
 
 import { Redis } from '@upstash/redis';
 import { Errors } from '@/lib/errors';
-import type { IngestionJob, DemoSession } from './types';
+import type { IngestionJob, AxiomSession, AxiomMode } from './types';
 
 /* ─── Singleton Client ────────────────────────────────────────── */
 
@@ -39,65 +39,89 @@ export function getRedis(): Redis {
   return redisInstance;
 }
 
-/* ─── Session Management (Phase 3: ZSET-Indexed) ─────────────── */
+/* ─── Session Management (Phase 5: NX-Atomic, Mode-Aware) ───── */
 
 const SESSION_PREFIX = 'session:';
-const SESSION_TTL_SECONDS = 4 * 60 * 60; // 4 hours
+const SESSION_TTL_SECONDS = 4 * 60 * 60; // 4 hours (ephemeral only)
 
 /**
- * The sorted set that indexes all session expiry timestamps.
+ * The sorted set that indexes ephemeral session expiry timestamps.
  * Score = Unix timestamp (ms) when the session expires.
  * Member = sessionId (UUID).
  *
+ * GOVERNED SESSIONS ARE NEVER ADDED TO THIS INDEX.
  * This is the O(log N) replacement for the O(N) KEYS bomb.
  */
 const SESSION_EXPIRY_INDEX = 'session_expiry_index';
 
 /**
- * Creates a new session with dual-write:
- * 1. SET session:{id} with TTL (auto-purge safety net)
- * 2. ZADD session_expiry_index with expiry timestamp score
+ * Creates a new session with NX atomicity.
  *
- * Both writes happen in a single pipeline (atomic round-trip).
+ * IMMUTABLE SESSION RULE (Architectural Condition #2):
+ * Uses Redis SET with NX flag — "Set if Not eXists".
+ * If the key already exists, SET NX returns null and we return null.
+ * The caller (upload route) must interpret null as 409 Conflict.
+ *
+ * A session's mode is immutable for its entire lifecycle.
+ * This prevents the race condition where two concurrent requests
+ * create the same session with different modes.
  *
  * @param sessionId - The session UUID.
  * @param userId    - Verified owner from JWT sub claim.
+ * @param mode      - 'ephemeral' or 'governed'. Immutable once set.
+ * @returns The created session, or null if the session already exists (NX conflict).
  */
-export async function createSession(sessionId: string, userId: string): Promise<DemoSession> {
+export async function createSession(
+  sessionId: string,
+  userId: string,
+  mode: AxiomMode = 'ephemeral'
+): Promise<AxiomSession | null> {
   const redis = getRedis();
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + SESSION_TTL_SECONDS * 1000);
+  const expiresAt = mode === 'ephemeral'
+    ? new Date(now.getTime() + SESSION_TTL_SECONDS * 1000)
+    : undefined;
 
-  const session: DemoSession = {
+  const session: AxiomSession = {
     sessionId,
     userId,
     createdAt: now.toISOString(),
-    expiresAt: expiresAt.toISOString(),
+    expiresAt: expiresAt?.toISOString(),
+    mode,
     status: 'active',
   };
 
-  // Atomic pipeline: both writes succeed or fail together.
-  // This guarantees the ZSET index stays consistent with session state.
-  const pipeline = redis.pipeline();
-  pipeline.set(`${SESSION_PREFIX}${sessionId}`, JSON.stringify(session), {
-    ex: SESSION_TTL_SECONDS,
-  });
-  pipeline.zadd(SESSION_EXPIRY_INDEX, {
-    score: expiresAt.getTime(),
-    member: sessionId,
-  });
-  await pipeline.exec();
+  const key = `${SESSION_PREFIX}${sessionId}`;
+  const payload = JSON.stringify(session);
+
+  if (mode === 'governed') {
+    // Governed: No TTL, no ZSET entry. NX prevents overwrite.
+    const result = await redis.set(key, payload, { nx: true });
+    if (!result) return null; // Key already exists — immutable mode conflict.
+  } else {
+    // Ephemeral: 4h TTL + ZSET expiry index. NX prevents overwrite.
+    const result = await redis.set(key, payload, { nx: true, ex: SESSION_TTL_SECONDS });
+    if (!result) return null; // Key already exists — immutable mode conflict.
+
+    // ZADD only if SET succeeded. If SET returned null, we don't reach here.
+    if (expiresAt) {
+      await redis.zadd(SESSION_EXPIRY_INDEX, {
+        score: expiresAt.getTime(),
+        member: sessionId,
+      });
+    }
+  }
 
   return session;
 }
 
 export async function getSession(
   sessionId: string
-): Promise<DemoSession | null> {
+): Promise<AxiomSession | null> {
   const redis = getRedis();
   const data = await redis.get<string>(`${SESSION_PREFIX}${sessionId}`);
   if (!data) return null;
-  return typeof data === 'string' ? JSON.parse(data) as DemoSession : data as unknown as DemoSession;
+  return typeof data === 'string' ? JSON.parse(data) as AxiomSession : data as unknown as AxiomSession;
 }
 
 /**
@@ -105,7 +129,8 @@ export async function getSession(
  * Complexity: O(log N + M) where M = number of expired sessions.
  * This NEVER scans the full keyspace — it's a sorted set range query.
  *
- * Replaces the O(N) redis.keys() + per-key GET scan (Finding 3 Remedy).
+ * GOVERNED SESSIONS ARE NEVER IN THIS INDEX.
+ * The cleanup cron will additionally verify session.mode before deleting.
  *
  * @returns Array of session IDs whose expiry timestamp <= now.
  */
@@ -113,8 +138,6 @@ export async function getExpiredSessionIds(): Promise<string[]> {
   const redis = getRedis();
   const now = Date.now();
 
-  // ZRANGEBYSCORE: returns members with score between 0 and now.
-  // These are sessions whose expiresAt timestamp has passed.
   const expired = await redis.zrange<string[]>(
     SESSION_EXPIRY_INDEX,
     0,          // min score (epoch start)
@@ -139,8 +162,7 @@ export async function deleteSession(sessionId: string): Promise<void> {
 
 /**
  * Removes a session from the expiry index only.
- * Used by the cleanup cron after it has already deleted the session.
- * This is a legacy compat function — new code uses deleteSession().
+ * Legacy compat function — new code uses deleteSession().
  */
 export async function removeFromExpiryIndex(sessionId: string): Promise<void> {
   const redis = getRedis();
@@ -149,7 +171,7 @@ export async function removeFromExpiryIndex(sessionId: string): Promise<void> {
 
 /**
  * Validates that a session exists AND belongs to the requesting user.
- * This is the ownership enforcement gate — prevents cross-session data access.
+ * Returns the full session including its mode for downstream routing.
  *
  * @param sessionId - The session to validate.
  * @param userId    - The verified user ID from JWT claims.
@@ -160,14 +182,11 @@ export async function removeFromExpiryIndex(sessionId: string): Promise<void> {
 export async function validateSessionOwnership(
   sessionId: string,
   userId: string
-): Promise<DemoSession> {
+): Promise<AxiomSession> {
   const session = await getSession(sessionId);
   if (!session) {
     throw Errors.notFound('Session');
   }
-  // Backward compatibility: sessions created before Phase 1
-  // may not have userId. Allow access during migration window.
-  // After TTL expiry (4h), all legacy sessions will be gone.
   if (session.userId && session.userId !== userId) {
     throw Errors.forbidden('You do not own this session.');
   }

@@ -18,8 +18,10 @@ process.env.UPSTASH_REDIS_REST_URL = 'https://mock-redis.upstash.io';
 process.env.UPSTASH_REDIS_REST_TOKEN = 'mock-redis-token';
 process.env.QSTASH_TOKEN = 'mock-qstash-token';
 process.env.GOOGLE_API_KEY = 'mock-google-key';
-process.env.UPSTASH_VECTOR_REST_URL = 'https://mock.upstash.io';
-process.env.UPSTASH_VECTOR_REST_TOKEN = 'mock-token';
+process.env.AXIOM_0_VECTOR_URL = 'https://mock-ephemeral.upstash.io';
+process.env.AXIOM_0_VECTOR_TOKEN = 'mock-ephemeral-token';
+process.env.AXIOM_G_VECTOR_URL = 'https://mock-governed.upstash.io';
+process.env.AXIOM_G_VECTOR_TOKEN = 'mock-governed-token';
 process.env.AXIOM_AUTH_BYPASS = 'true';
 
 /* ─── Mocks ───────────────────────────────────────────────────── */
@@ -56,15 +58,11 @@ vi.mock('@/lib/redis', () => ({
   createSession: vi.fn().mockResolvedValue({
     sessionId: '550e8400-e29b-41d4-a716-446655440000',
     userId: 'dev-user-001',
+    mode: 'ephemeral',
     status: 'active',
     createdAt: new Date().toISOString(),
   }),
-  getSession: vi.fn().mockResolvedValue({
-    sessionId: '550e8400-e29b-41d4-a716-446655440000',
-    userId: 'dev-user-001',
-    status: 'active',
-    createdAt: new Date().toISOString(),
-  }),
+  getSession: vi.fn().mockResolvedValue(null), // NX: session doesn't exist yet, so createSession runs
   createJob: vi.fn().mockResolvedValue(undefined),
   updateJob: vi.fn().mockResolvedValue(undefined),
 }));

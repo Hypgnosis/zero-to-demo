@@ -121,17 +121,29 @@ describe('Zod Validation Schemas', () => {
       const result = ProcessDocumentPayloadSchema.safeParse({
         jobId: '550e8400-e29b-41d4-a716-446655440000',
         sessionId: '550e8400-e29b-41d4-a716-446655440001',
-        blobUrl: 'https://blob.vercel.app/test.pdf',
+        genAiFileName: 'files/abc123',
         fileName: 'catalog.pdf',
+        mode: 'ephemeral',
       });
       expect(result.success).toBe(true);
     });
 
-    it('rejects invalid blobUrl', () => {
+    it('accepts governed mode', () => {
       const result = ProcessDocumentPayloadSchema.safeParse({
         jobId: '550e8400-e29b-41d4-a716-446655440000',
         sessionId: '550e8400-e29b-41d4-a716-446655440001',
-        blobUrl: 'not-a-url',
+        genAiFileName: 'files/abc123',
+        fileName: 'catalog.pdf',
+        mode: 'governed',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects missing mode', () => {
+      const result = ProcessDocumentPayloadSchema.safeParse({
+        jobId: '550e8400-e29b-41d4-a716-446655440000',
+        sessionId: '550e8400-e29b-41d4-a716-446655440001',
+        genAiFileName: 'files/abc123',
         fileName: 'catalog.pdf',
       });
       expect(result.success).toBe(false);
@@ -141,8 +153,9 @@ describe('Zod Validation Schemas', () => {
       const result = ProcessDocumentPayloadSchema.safeParse({
         jobId: '550e8400-e29b-41d4-a716-446655440000',
         sessionId: '550e8400-e29b-41d4-a716-446655440001',
-        blobUrl: 'https://blob.vercel.app/test.pdf',
+        genAiFileName: 'files/abc123',
         fileName: '',
+        mode: 'ephemeral',
       });
       expect(result.success).toBe(false);
     });

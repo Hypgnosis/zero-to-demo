@@ -47,6 +47,10 @@ const translations = {
     complete: 'Vectorization complete!',
     failed: 'Processing failed.',
     voiceBtn: 'Voice Agent',
+    demoMode: 'Demo Environment',
+    demoDesc: 'Self-destructs in 4h',
+    employeeMode: 'Digital Employee',
+    employeeDesc: 'Persistent Knowledge',
   },
   es: {
     title: 'AXIOM-0',
@@ -66,6 +70,10 @@ const translations = {
     complete: '¡Vectorización completa!',
     failed: 'El procesamiento falló.',
     voiceBtn: 'Agente de Voz',
+    demoMode: 'Entorno de Demo',
+    demoDesc: 'Auto-eliminación en 4h',
+    employeeMode: 'Empleado Digital',
+    employeeDesc: 'Conocimiento Persistente',
   },
 } as const;
 
@@ -235,6 +243,7 @@ export default function AxiomApp() {
   const [fileName, setFileName] = useState<string>('');
   const [jobId, setJobId] = useState<string | null>(null);
   const [showVoice, setShowVoice] = useState(false);
+  const [isPersistent, setIsPersistent] = useState(false);
 
   /* ─── Chat State ────────────────────────────────────────────── */
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -278,6 +287,9 @@ export default function AxiomApp() {
 
       const res = await fetch(`/api/upload?sessionId=${sessionId}`, {
         method: 'POST',
+        headers: {
+          'X-Axiom-Mode': isPersistent ? 'governed' : 'ephemeral',
+        },
         body: formData,
       });
 
@@ -407,10 +419,12 @@ export default function AxiomApp() {
           <div className="flex items-center gap-3">
             <AZeroSVG className="w-10 h-10" pulsing={phase === 'processing'} />
             <div>
-              <h1 className="text-lg font-bold tracking-wider text-[var(--text-primary)] glow-purple-text">
-                {t.title}
+              <h1 className="text-lg font-bold tracking-wider text-[var(--text-primary)] glow-purple-text transition-all duration-500">
+                {isPersistent ? t.employeeMode : t.title}
               </h1>
-              <p className="text-xs text-[var(--text-muted)] tracking-wide">{t.subtitle}</p>
+              <p className="text-xs text-[var(--text-muted)] tracking-wide">
+                {isPersistent ? t.employeeDesc : t.subtitle}
+              </p>
             </div>
           </div>
 
@@ -459,17 +473,53 @@ export default function AxiomApp() {
                     isDragging ? 'border-[var(--cyber-purple)] scale-[1.02]' : ''
                   }`}
                 >
-                  <div className="w-20 h-20 rounded-2xl bg-[var(--cyber-purple-dim)] flex items-center justify-center">
-                    <Upload size={36} className="text-[var(--cyber-purple)]" />
+                  {/* Mode Toggle */}
+                  <div className="flex p-1 gap-1 glass-panel-sm rounded-xl mb-6 w-full max-w-xs">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setIsPersistent(false); }}
+                      className={`flex-1 px-3 py-2 rounded-lg text-[10px] uppercase tracking-widest transition-all duration-300 ${
+                        !isPersistent 
+                          ? 'bg-[var(--cyber-purple-dim)] text-[var(--text-primary)] border border-[var(--cyber-purple)]/30' 
+                          : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                      }`}
+                    >
+                      {t.demoMode}
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setIsPersistent(true); }}
+                      className={`flex-1 px-3 py-2 rounded-lg text-[10px] uppercase tracking-widest transition-all duration-300 ${
+                        isPersistent 
+                          ? 'bg-[var(--amber-gold-dim)] text-[var(--text-primary)] border border-[var(--amber-gold)]/30' 
+                          : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                      }`}
+                    >
+                      {t.employeeMode}
+                    </button>
+                  </div>
+
+                  <div className="w-20 h-20 rounded-2xl bg-[var(--cyber-purple-dim)] flex items-center justify-center relative overflow-hidden group">
+                    <Upload size={36} className={`text-[var(--cyber-purple)] transition-all duration-500 ${isPersistent ? 'text-[var(--amber-gold)]' : ''}`} />
+                    {isPersistent && (
+                      <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="absolute inset-0 bg-gradient-to-tr from-[var(--amber-gold-dim)] to-transparent pointer-events-none"
+                      />
+                    )}
                   </div>
                   <div className="text-center">
                     <p className="text-lg font-semibold text-[var(--text-primary)]">
                       {t.dragDrop}
                     </p>
                     <p className="text-sm text-[var(--text-muted)] mt-1">{t.uploadBtn}</p>
-                    <p className="text-xs text-[var(--text-muted)] mt-3">
-                      PDF · Max 50MB · Secure Server-Side Processing
-                    </p>
+                    <div className="flex flex-col gap-1 mt-4">
+                      <p className={`text-[10px] uppercase tracking-[0.2em] font-bold ${isPersistent ? 'text-[var(--amber-gold)]' : 'text-[var(--cyber-purple)]'}`}>
+                        {isPersistent ? t.employeeDesc : t.demoDesc}
+                      </p>
+                      <p className="text-[10px] text-[var(--text-muted)] opacity-50 uppercase tracking-widest">
+                        PDF · Max 50MB · Secure Encryption
+                      </p>
+                    </div>
                   </div>
                   <input
                     ref={fileInputRef}

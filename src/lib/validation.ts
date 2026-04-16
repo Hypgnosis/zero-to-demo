@@ -1,11 +1,28 @@
 /**
  * ═══════════════════════════════════════════════════════════════════
- * AXIOM-0 — Zod Validation Schemas
+ * AXIOM-0 / AXIOM-G — Zod Validation Schemas
+ *
+ * Phase 5: Dual-Mode Architecture
+ *
  * Every API route validates through these schemas. No raw req.json().
+ * Mode parsing uses FAIL-TO-EPHEMERAL: any unrecognized or missing
+ * mode value defaults to 'ephemeral'.
  * ═══════════════════════════════════════════════════════════════════
  */
 
 import { z } from 'zod';
+import type { AxiomMode } from './types';
+
+/* ─── Mode Resolution ─────────────────────────────────────────── */
+
+/**
+ * Resolves the AxiomMode from a raw header/param value.
+ * FAIL-TO-EPHEMERAL: anything that isn't exactly 'governed' → 'ephemeral'.
+ * This is a security invariant — ambiguity defaults to the safe path.
+ */
+export function resolveMode(raw: string | null | undefined): AxiomMode {
+  return raw === 'governed' ? 'governed' : 'ephemeral';
+}
 
 /* ─── Upload ──────────────────────────────────────────────────── */
 
@@ -50,6 +67,8 @@ export const ProcessDocumentPayloadSchema = z.object({
   /** Google GenAI File API reference (e.g., "files/abc123"). Phase 2: Ghost Pipeline. */
   genAiFileName: z.string().min(1),
   fileName: z.string().min(1),
+  /** Phase 5: The mode that was active when the upload was accepted. */
+  mode: z.enum(['ephemeral', 'governed']),
 });
 
 /* ─── Voice Handshake ─────────────────────────────────────────── */
