@@ -76,6 +76,14 @@ body {
   box-shadow: 0 0 30px var(--amber-gold-dim), 0 0 60px rgba(255, 215, 0, 0.05);
 }
 
+.glow-purple-sm {
+  box-shadow: 0 0 15px var(--cyber-purple-dim);
+}
+
+.glow-gold-sm {
+  box-shadow: 0 0 15px var(--amber-gold-dim);
+}
+
 .glow-purple-text {
   text-shadow: 0 0 20px var(--cyber-purple-glow);
 }
@@ -125,8 +133,9 @@ body {
   left: 0;
   right: 0;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--cyber-purple), transparent);
+  background: linear-gradient(90deg, transparent, var(--theme-color, var(--cyber-purple)), transparent);
   animation: scan 3s ease-in-out infinite;
+  opacity: 0.5;
 }
 
 /* ─── Typing Cursor ────────────────────────────────────────── */
@@ -137,7 +146,7 @@ body {
 
 .typing-cursor::after {
   content: '▌';
-  color: var(--cyber-purple);
+  color: var(--theme-color, var(--cyber-purple));
   animation: blink-cursor 0.8s step-end infinite;
 }
 

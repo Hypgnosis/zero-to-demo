@@ -30,68 +30,91 @@ type JobStatus = 'pending' | 'processing' | 'complete' | 'failed';
 
 const translations = {
   en: {
-    title: 'AXIOM-0',
-    subtitle: 'Autonomous Intelligence | Enterprise RAG',
+    title0: 'AXIOM-0',
+    titleG: 'AXIOM-G',
+    subtitle0: 'Autonomous Intelligence | Ephemeral Memory',
+    subtitleG: 'Enterprise Governance | Persistent Sovereignty',
     dragDrop: 'Drag & Drop Industrial PDF',
     uploadBtn: 'or click to vector-load',
-    memory: 'Session-Isolated',
-    encryption: 'Server-Side Keys',
-    chatPlaceholder: 'Query the Agent...',
+    memory0: 'Session-Isolated',
+    memoryG: 'Long-Term Context',
+    encryption0: 'Server-Side Keys',
+    encryptionG: 'BYOK Sovereign Keys',
+    chatPlaceholder: 'Query the System...',
     steps: {
       0: 'Uploading to Staging...',
       1: 'Vectorizing Document...',
-      2: 'Agent Online',
+      2: 'System Online',
     } as Record<number, string>,
     noFile: 'Intake requires an industrial PDF.',
     processing: 'Processing your document...',
     complete: 'Vectorization complete!',
     failed: 'Processing failed.',
-    voiceBtn: 'Voice Agent',
-    demoMode: 'Demo Environment',
-    demoDesc: 'Self-destructs in 4h',
-    employeeMode: 'Digital Employee',
-    employeeDesc: 'Persistent Knowledge',
+    voiceBtn: 'Voice Interface',
+    face0: 'Face: 0',
+    face0Desc: 'Ephemeral / Self-Destruct in 4h',
+    faceG: 'Face: G',
+    faceGDesc: 'Governed / Persistent Assets',
   },
   es: {
-    title: 'AXIOM-0',
-    subtitle: 'Inteligencia Autónoma | RAG Empresarial',
+    title0: 'AXIOM-0',
+    titleG: 'AXIOM-G',
+    subtitle0: 'Inteligencia Autónoma | Memoria Efímera',
+    subtitleG: 'Gobernanza Empresarial | Soberanía Persistente',
     dragDrop: 'Arrastra un PDF Industrial Aquí',
     uploadBtn: 'o haz clic para carga vectorial',
-    memory: 'Aislamiento por Sesión',
-    encryption: 'Claves del Servidor',
+    memory0: 'Aislamiento por Sesión',
+    memoryG: 'Contexto de Largo Plazo',
+    encryption0: 'Claves del Servidor',
+    encryptionG: 'Claves Soberanas BYOK',
     chatPlaceholder: 'Consulta al Sistema...',
     steps: {
       0: 'Subiendo al Staging...',
       1: 'Vectorizando Documento...',
-      2: 'Agente en Línea',
+      2: 'Sistema en Línea',
     } as Record<number, string>,
     noFile: 'La ingesta requiere un PDF industrial.',
     processing: 'Procesando su documento...',
     complete: '¡Vectorización completa!',
     failed: 'El procesamiento falló.',
-    voiceBtn: 'Agente de Voz',
-    demoMode: 'Entorno de Demo',
-    demoDesc: 'Auto-eliminación en 4h',
-    employeeMode: 'Empleado Digital',
-    employeeDesc: 'Conocimiento Persistente',
+    voiceBtn: 'Interfaz de Voz',
+    face0: 'Cara: 0',
+    face0Desc: 'Efímera / Autodestrucción en 4h',
+    faceG: 'Cara: G',
+    faceGDesc: 'Gobernada / Activos Persistentes',
   },
 } as const;
 
 type Lang = keyof typeof translations;
 
 /* ═══════════════════════════════════════════════════════════════════
-   LOGO COMPONENT
+   LOGO COMPONENT (Unified)
    ═══════════════════════════════════════════════════════════════════ */
 
-function AZeroSVG({ className, pulsing = false }: { className?: string; pulsing?: boolean }) {
+function AxiomLogo({ 
+  className, 
+  pulsing = false, 
+  face = '0' 
+}: { 
+  className?: string; 
+  pulsing?: boolean;
+  face?: '0' | 'G';
+}) {
+  const logoSrc = face === '0' ? '/Axiom-0 Logo.png' : '/Axiom-G Logo.png';
+  const glowColor = face === '0' ? 'rgba(188,19,254,1)' : 'rgba(255,215,0,1)';
+  
   return (
     <div className={`relative flex items-center justify-center ${className ?? ''}`}>
-      <img
-        src="/Axiom-0 Logo.png"
-        alt="Axiom-0"
+      <motion.img
+        key={face}
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.5, ease: "easeOut" }}
+        src={logoSrc}
+        alt={`Axiom-${face}`}
         className={`absolute inset-0 w-full h-full object-contain mix-blend-screen transition-all ${pulsing ? 'animate-pulse' : ''}`}
         style={{
-          filter: `contrast(2.0) brightness(1.3) grayscale(0.2) ${pulsing ? 'drop-shadow(0 0 15px rgba(188,19,254,1))' : ''}`,
+          filter: `contrast(2.0) brightness(1.3) grayscale(0.2) ${pulsing ? `drop-shadow(0 0 20px ${glowColor})` : ''}`,
         }}
       />
     </div>
@@ -240,10 +263,10 @@ export default function AxiomApp() {
   /* ─── Core State ────────────────────────────────────────────── */
   const [phase, setPhase] = useState<AppPhase>('upload');
   const [lang, setLang] = useState<Lang>('en');
+  const [face, setFace] = useState<'0' | 'G'>('0');
   const [fileName, setFileName] = useState<string>('');
   const [jobId, setJobId] = useState<string | null>(null);
   const [showVoice, setShowVoice] = useState(false);
-  const [isPersistent, setIsPersistent] = useState(false);
 
   /* ─── Chat State ────────────────────────────────────────────── */
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -288,7 +311,7 @@ export default function AxiomApp() {
       const res = await fetch(`/api/upload?sessionId=${sessionId}`, {
         method: 'POST',
         headers: {
-          'X-Axiom-Mode': isPersistent ? 'governed' : 'ephemeral',
+          'X-Axiom-Mode': face === '0' ? 'ephemeral' : 'governed',
         },
         body: formData,
       });
@@ -407,8 +430,14 @@ export default function AxiomApp() {
   /* ═══════════════════════════════════════════════════════════════
      RENDER
      ═══════════════════════════════════════════════════════════════ */
+  const themeColor = face === '0' ? 'var(--cyber-purple)' : 'var(--amber-gold)';
+  const themeGlow = face === '0' ? 'glow-purple-text' : 'glow-gold-text';
+
   return (
-    <div className="relative min-h-screen w-full overflow-hidden bg-[var(--obsidian)]">
+    <div 
+      className="relative min-h-screen w-full overflow-hidden bg-[var(--obsidian)]"
+      style={{ '--theme-color': themeColor } as React.CSSProperties}
+    >
       {/* 3D Background */}
       <Background3D />
 
@@ -417,13 +446,13 @@ export default function AxiomApp() {
         {/* ── Header ──────────────────────────────────────────── */}
         <header className="w-full flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
-            <AZeroSVG className="w-10 h-10" pulsing={phase === 'processing'} />
+            <AxiomLogo className="w-10 h-10" face={face} pulsing={phase === 'processing'} />
             <div>
-              <h1 className="text-lg font-bold tracking-wider text-[var(--text-primary)] glow-purple-text transition-all duration-500">
-                {isPersistent ? t.employeeMode : t.title}
+              <h1 className={`text-lg font-bold tracking-wider text-[var(--text-primary)] ${themeGlow} transition-all duration-500`}>
+                {face === '0' ? t.title0 : t.titleG}
               </h1>
               <p className="text-xs text-[var(--text-muted)] tracking-wide">
-                {isPersistent ? t.employeeDesc : t.subtitle}
+                {face === '0' ? t.subtitle0 : t.subtitleG}
               </p>
             </div>
           </div>
@@ -432,12 +461,12 @@ export default function AxiomApp() {
             {/* Status Badges */}
             <div className="hidden md:flex items-center gap-3">
               <span className="flex items-center gap-1.5 text-[10px] text-[var(--text-secondary)] tracking-widest uppercase">
-                <Shield size={12} className="text-[var(--cyber-purple)]" />
-                {t.encryption}
+                <Shield size={12} style={{ color: themeColor }} />
+                {face === '0' ? t.encryption0 : t.encryptionG}
               </span>
               <span className="flex items-center gap-1.5 text-[10px] text-[var(--text-secondary)] tracking-widest uppercase">
-                <Zap size={12} className="text-[var(--amber-gold)]" />
-                {t.memory}
+                <Zap size={12} style={{ color: themeColor }} />
+                {face === '0' ? t.memory0 : t.memoryG}
               </span>
             </div>
 
@@ -469,55 +498,59 @@ export default function AxiomApp() {
                   onDragLeave={onDragLeave}
                   onDrop={onDrop}
                   onClick={() => fileInputRef.current?.click()}
-                  className={`glass-panel glow-purple w-full max-w-lg p-12 flex flex-col items-center gap-6 cursor-pointer transition-all duration-300 ${
-                    isDragging ? 'border-[var(--cyber-purple)] scale-[1.02]' : ''
-                  }`}
+                  className={`glass-panel w-full max-w-lg p-12 flex flex-col items-center gap-6 cursor-pointer transition-all duration-500 ${
+                    face === '0' ? 'glow-purple' : 'glow-gold'
+                  } ${isDragging ? 'border-[var(--cyber-purple)] scale-[1.02]' : ''}`}
                 >
-                  {/* Mode Toggle */}
-                  <div className="flex p-1 gap-1 glass-panel-sm rounded-xl mb-6 w-full max-w-xs">
+                  {/* Mode Toggle (Face Switcher) */}
+                  <div className="flex p-1 gap-1 glass-panel-sm rounded-xl mb-6 w-full max-w-xs relative overflow-hidden">
                     <button
-                      onClick={(e) => { e.stopPropagation(); setIsPersistent(false); }}
-                      className={`flex-1 px-3 py-2 rounded-lg text-[10px] uppercase tracking-widest transition-all duration-300 ${
-                        !isPersistent 
-                          ? 'bg-[var(--cyber-purple-dim)] text-[var(--text-primary)] border border-[var(--cyber-purple)]/30' 
+                      onClick={(e) => { e.stopPropagation(); setFace('0'); }}
+                      className={`flex-1 px-3 py-2 rounded-lg text-[10px] uppercase tracking-widest z-10 transition-all duration-300 ${
+                        face === '0' 
+                          ? 'bg-[var(--cyber-purple-dim)] text-[var(--text-primary)] border border-[var(--cyber-purple)]/30 shadow-[0_0_15px_rgba(188,19,254,0.3)]' 
                           : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
                       }`}
                     >
-                      {t.demoMode}
+                      {t.face0}
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); setIsPersistent(true); }}
-                      className={`flex-1 px-3 py-2 rounded-lg text-[10px] uppercase tracking-widest transition-all duration-300 ${
-                        isPersistent 
-                          ? 'bg-[var(--amber-gold-dim)] text-[var(--text-primary)] border border-[var(--amber-gold)]/30' 
+                      onClick={(e) => { e.stopPropagation(); setFace('G'); }}
+                      className={`flex-1 px-3 py-2 rounded-lg text-[10px] uppercase tracking-widest z-10 transition-all duration-300 ${
+                        face === 'G' 
+                          ? 'bg-[var(--amber-gold-dim)] text-[var(--text-primary)] border border-[var(--amber-gold)]/30 shadow-[0_0_15px_rgba(255,215,0,0.3)]' 
                           : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
                       }`}
                     >
-                      {t.employeeMode}
+                      {t.faceG}
                     </button>
                   </div>
 
-                  <div className="w-20 h-20 rounded-2xl bg-[var(--cyber-purple-dim)] flex items-center justify-center relative overflow-hidden group">
-                    <Upload size={36} className={`text-[var(--cyber-purple)] transition-all duration-500 ${isPersistent ? 'text-[var(--amber-gold)]' : ''}`} />
-                    {isPersistent && (
-                      <motion.div 
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="absolute inset-0 bg-gradient-to-tr from-[var(--amber-gold-dim)] to-transparent pointer-events-none"
-                      />
-                    )}
+                  <div className={`w-20 h-20 rounded-2xl flex items-center justify-center relative overflow-hidden group transition-colors duration-500 ${
+                    face === '0' ? 'bg-[var(--cyber-purple-dim)]' : 'bg-[var(--amber-gold-dim)]'
+                  }`}>
+                    <Upload size={36} className="transition-all duration-500" style={{ color: themeColor }} />
+                    <motion.div 
+                      key={face}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${
+                        face === '0' ? 'bg-gradient-to-tr from-[var(--cyber-purple-dim)] to-transparent' : 'bg-gradient-to-tr from-[var(--amber-gold-dim)] to-transparent'
+                      }`}
+                    />
                   </div>
+                  
                   <div className="text-center">
                     <p className="text-lg font-semibold text-[var(--text-primary)]">
                       {t.dragDrop}
                     </p>
                     <p className="text-sm text-[var(--text-muted)] mt-1">{t.uploadBtn}</p>
                     <div className="flex flex-col gap-1 mt-4">
-                      <p className={`text-[10px] uppercase tracking-[0.2em] font-bold ${isPersistent ? 'text-[var(--amber-gold)]' : 'text-[var(--cyber-purple)]'}`}>
-                        {isPersistent ? t.employeeDesc : t.demoDesc}
+                      <p className="text-[10px] uppercase tracking-[0.2em] font-bold transition-colors duration-500" style={{ color: themeColor }}>
+                        {face === '0' ? t.face0Desc : t.faceGDesc}
                       </p>
                       <p className="text-[10px] text-[var(--text-muted)] opacity-50 uppercase tracking-widest">
-                        PDF · Max 50MB · Secure Encryption
+                        PDF · Max 50MB · {face === '0' ? 'Ephemeral Memory' : 'Governed Sovereignty'}
                       </p>
                     </div>
                   </div>
@@ -541,8 +574,10 @@ export default function AxiomApp() {
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="flex-1 flex items-center justify-center"
               >
-                <div className="glass-panel glow-purple w-full max-w-lg p-10 flex flex-col items-center gap-6">
-                  <AZeroSVG className="w-24 h-24" pulsing />
+                <div className={`glass-panel w-full max-w-lg p-10 flex flex-col items-center gap-6 ${
+                  face === '0' ? 'glow-purple' : 'glow-gold'
+                }`}>
+                  <AxiomLogo className="w-24 h-24" face={face} pulsing />
 
                   <div className="text-center">
                     <p className="text-sm font-mono text-[var(--text-secondary)] mb-2">
@@ -567,11 +602,12 @@ export default function AxiomApp() {
                             key={step}
                             className={`flex items-center gap-2 text-sm transition-all ${
                               isActive
-                                ? 'text-[var(--cyber-purple)]'
+                                ? 'transition-colors duration-500'
                                 : isComplete
                                 ? 'text-green-400'
                                 : 'text-[var(--text-muted)]'
                             }`}
+                            style={isActive ? { color: themeColor } : {}}
                           >
                             {isActive && <Loader2 size={14} className="animate-spin" />}
                             {isComplete && !isActive && <CheckCircle size={14} />}
@@ -587,7 +623,7 @@ export default function AxiomApp() {
                     </div>
 
                     {totalChunks > 0 && (
-                      <p className="text-xs text-[var(--amber-gold)] mt-3 font-mono">
+                      <p className="text-xs mt-3 font-mono" style={{ color: themeColor }}>
                         {totalChunks} vectors embedded
                       </p>
                     )}
@@ -615,9 +651,9 @@ export default function AxiomApp() {
                 {/* Agent Header */}
                 <div className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-2">
-                    <BrainCircuit size={18} className="text-[var(--cyber-purple)]" />
-                    <span className="text-sm font-mono text-[var(--text-secondary)] tracking-wide">
-                      AXIOM-0 AGENT — {fileName}
+                    <BrainCircuit size={18} style={{ color: themeColor }} />
+                    <span className="text-sm font-mono text-[var(--text-secondary)] tracking-wide uppercase">
+                      AXIOM-{face} AGENT — {fileName}
                     </span>
                     <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 font-mono">
                       ONLINE
@@ -647,10 +683,12 @@ export default function AxiomApp() {
                 </div>
 
                 {/* Chat Messages */}
-                <div className="glass-panel flex-1 overflow-y-auto p-4 space-y-4 min-h-[400px] max-h-[60vh] scan-line relative">
+                <div className={`glass-panel flex-1 overflow-y-auto p-4 space-y-4 min-h-[400px] max-h-[60vh] scan-line relative ${
+                  face === '0' ? 'glow-purple-sm' : 'glow-gold-sm'
+                }`}>
                   {messages.length === 0 && (
                     <div className="flex items-center justify-center h-full">
-                      <p className="text-[var(--text-muted)] text-sm font-mono">
+                      <p className="text-[var(--text-muted)] text-sm font-mono uppercase tracking-widest opacity-30">
                         {t.chatPlaceholder}
                       </p>
                     </div>
@@ -662,11 +700,15 @@ export default function AxiomApp() {
                       className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
                       <div
-                        className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                        className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed transition-all duration-500 ${
                           msg.role === 'user'
-                            ? 'bg-[var(--cyber-purple-dim)] text-[var(--text-primary)] rounded-br-md'
+                            ? `text-[var(--text-primary)] rounded-br-md`
                             : 'glass-panel-sm text-[var(--text-primary)] rounded-bl-md'
                         }`}
+                        style={msg.role === 'user' ? { 
+                          backgroundColor: face === '0' ? 'rgba(188,19,254,0.15)' : 'rgba(255,215,0,0.15)',
+                          border: `1px solid ${face === '0' ? 'rgba(188,19,254,0.3)' : 'rgba(255,215,0,0.3)'}`
+                        } : {}}
                       >
                         {msg.content || (
                           <span className="typing-cursor text-[var(--text-muted)]"> </span>
@@ -691,7 +733,11 @@ export default function AxiomApp() {
                   <button
                     onClick={sendMessage}
                     disabled={isStreaming || !inputValue.trim()}
-                    className="p-2 rounded-lg bg-[var(--cyber-purple-dim)] text-[var(--cyber-purple)] hover:bg-[var(--cyber-purple)] hover:text-white transition-all disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+                    className="p-2 rounded-lg transition-all disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+                    style={{ 
+                      backgroundColor: face === '0' ? 'rgba(188,19,254,0.15)' : 'rgba(255,215,0,0.15)',
+                      color: themeColor
+                    }}
                   >
                     {isStreaming ? (
                       <Loader2 size={18} className="animate-spin" />
@@ -714,8 +760,8 @@ export default function AxiomApp() {
               >
                 <div className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-2">
-                    <Mic size={18} className="text-[var(--cyber-purple)]" />
-                    <span className="text-sm font-mono text-[var(--text-secondary)]">
+                    <Mic size={18} style={{ color: themeColor }} />
+                    <span className="text-sm font-mono text-[var(--text-secondary)] uppercase">
                       VOICE AGENT — {fileName}
                     </span>
                   </div>
@@ -737,7 +783,7 @@ export default function AxiomApp() {
 
         {/* ── Footer ──────────────────────────────────────────── */}
         <footer className="w-full text-center py-4 text-[10px] text-[var(--text-muted)] tracking-widest uppercase">
-          High ArchyTech Solutions — Enterprise Intelligence Systems
+          High ArchyTech Solutions — AXIOM Unified Intelligence
         </footer>
       </div>
     </div>
