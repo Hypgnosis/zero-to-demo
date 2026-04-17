@@ -152,6 +152,18 @@ export async function appendAuditLog(
     await redis.sadd('active_audit_tenants', tenantId);
   }
 
+  // Stream Throttling (Architectural Requirement #4)
+  // If a massive ingestion event occurs, don't wait for the 24h cron to drain.
+  // By running an emergency drain when we burst past 5,000 entries, we protect Redis RAM.
+  const streamLen = await redis.xlen(streamKey);
+  if (streamLen > 5000) {
+    console.warn(`[Audit-Throttle] 🌊 High water mark reached for ${streamKey} (${streamLen} entries). Triggering immediate emergency drain.`);
+    // Fire-and-forget to avoid blocking the hot-path latency
+    drainAuditStreams().catch(err => {
+      console.error(`[Audit-Throttle] 🚨 Emergency drain failed:`, err);
+    });
+  }
+
   console.log(
     `[Audit] ${action} | actor=${actorId} | resource=${resourceId} | stream=${streamKey} | id=${streamId}`
   );

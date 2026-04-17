@@ -42,6 +42,7 @@ export const NAMESPACE_PREFIX = {
 export interface AxiomSession {
   sessionId: string;
   userId: string;       // Verified owner (from JWT `sub` claim). Phase 1: Zero-Trust Identity.
+  tenantId?: string;    // Expanded multi-tenant identifier.
   createdAt: string;    // ISO 8601
   /** ISO 8601. Present ONLY for ephemeral sessions. Governed sessions have no expiry. */
   expiresAt?: string;

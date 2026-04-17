@@ -84,6 +84,12 @@ export const POST = withErrorHandler(async (req: Request) => {
     throw Errors.notFound('Session');
   }
 
+  // 3.b ENFORCE MULTI-TENANT ISOLATION
+  // Cryptographic binding prevents Cross-Tenant Log Browsing by CISOs
+  if (claims.tenantId && claims.tenantId !== session.tenantId) {
+    throw Errors.forbidden('Cross-tenant admin access is strictly forbidden.');
+  }
+
   if (session.mode !== 'governed') {
     throw Errors.validation(
       `Session ${sessionId} is ephemeral mode. Ephemeral sessions expire automatically ` +

@@ -31,6 +31,7 @@ import { withErrorHandler, Errors } from '@/lib/errors';
 import { authenticateRequest } from '@/lib/auth';
 import { initiateKeyRotation, getSessionVersions } from '@/lib/kms';
 import { auditKeyRotation } from '@/lib/audit';
+import { getSession } from '@/lib/redis';
 
 /* ─── Schema ──────────────────────────────────────────────────── */
 
@@ -55,7 +56,18 @@ export const POST = withErrorHandler(async (req: Request) => {
 
   const { sessionId } = parseResult.data;
 
-  // 3. Determine version identifiers
+  // 3. Verify session exists and belongs to the tenant
+  const session = await getSession(sessionId);
+  if (!session) {
+    throw Errors.notFound('Session');
+  }
+
+  // Cryptographic binding prevents Cross-Tenant Log Browsing by CISOs
+  if (claims.tenantId && claims.tenantId !== session.tenantId) {
+    throw Errors.forbidden('Cross-tenant admin access is strictly forbidden.');
+  }
+
+  // 4. Determine version identifiers
   const existingVersions = await getSessionVersions(sessionId);
   if (existingVersions.length === 0) {
     throw Errors.validation(

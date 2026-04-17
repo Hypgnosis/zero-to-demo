@@ -274,6 +274,12 @@ export const GET = withErrorHandler(async (req: Request) => {
 
   const { tenantId, sessionId, auditCount } = parseResult.data;
 
+  // 3. ENFORCE MULTI-TENANT ISOLATION
+  // Cryptographic binding prevents Cross-Tenant Dashboard Browsing by CISOs
+  if (claims.tenantId && claims.tenantId !== tenantId) {
+    throw Errors.forbidden('Cross-tenant admin access is strictly forbidden.');
+  }
+
   // 3. Build dashboard response
   const dashboardStart = Date.now();
 

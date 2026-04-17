@@ -52,6 +52,12 @@ export const GET = withErrorHandler(async (req: Request) => {
 
   const { tenantId, count, fromId } = parseResult.data;
 
+  // 3. ENFORCE MULTI-TENANT ISOLATION
+  // Cryptographic binding prevents Cross-Tenant Log Browsing by CISOs
+  if (claims.tenantId && claims.tenantId !== tenantId) {
+    throw Errors.forbidden('Cross-tenant admin access is strictly forbidden.');
+  }
+
   // 3. Read the audit stream
   const entries = await readAuditLog(tenantId, count, fromId);
 
