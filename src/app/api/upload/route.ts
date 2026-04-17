@@ -132,12 +132,23 @@ export const POST = withErrorHandler(async (req: Request) => {
   }
 
   // 6. Parse multipart form data
-  const formData = await req.formData();
+  console.log('[Upload] Attempting to parse FormData... (Netlify Limit check)');
+  let formData: FormData;
+  try {
+    formData = await req.formData();
+  } catch (err: any) {
+    console.error('[Upload] 🚨 FormData parsing failed. Request might be too large for Netlify (6MB limit):', err.message);
+    throw Errors.validation('File is too large for the serverless environment. Please try a smaller PDF (under 6MB) for this demo.');
+  }
+
   const file = formData.get('file');
 
   if (!file || !(file instanceof File)) {
-    throw Errors.validation('No file provided. Send a file in the "file" field.');
+    console.error('[Upload] 🚨 No file found in FormData payload');
+    throw Errors.validation('No file provided or invalid file format.');
   }
+
+  console.log(`[Upload] ✅ Parsed: name=${file.name}, size=${file.size}, mode=${mode}, session=${sessionId}`);
 
   // 7. Validate file type and size
   if (!ALLOWED_TYPES.includes(file.type)) {

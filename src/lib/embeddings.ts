@@ -19,9 +19,9 @@ let aiClient: GoogleGenAI | null = null;
 
 function getAI(): GoogleGenAI {
   if (!aiClient) {
-    const apiKey = process.env.GOOGLE_API_KEY;
+    const apiKey = process.env.GOOGLE_GENAI_API_KEY || process.env.GOOGLE_API_KEY;
     if (!apiKey) {
-      throw new Error('GOOGLE_API_KEY must be set.');
+      throw new Error('Neither GOOGLE_GENAI_API_KEY nor GOOGLE_API_KEY is set in environment.');
     }
     aiClient = new GoogleGenAI({ apiKey });
   }

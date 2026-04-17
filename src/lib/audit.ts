@@ -200,6 +200,12 @@ export async function appendAuditLog(
 export async function drainAuditStreams(): Promise<{ processed: number; streams: string[] }> {
   const redis = getRedis();
 
+  const bucketName = process.env.AUDIT_ARCHIVE_BUCKET;
+  if (!bucketName) {
+    console.warn('[Audit] ⚠️ AUDIT_ARCHIVE_BUCKET not set. Skipping persistent GCS archival.');
+    return { processed: 0, streams: [] };
+  }
+
   // CONCURRENCY LOCK (Architectural Requirement: Drain Storm Prevention)
   const LOCK_KEY = 'lock:audit_drain';
   // set with NX and EX (30 seconds TTL)
