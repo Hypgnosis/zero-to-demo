@@ -157,11 +157,27 @@ export async function appendAuditLog(
   // By running an emergency drain when we burst past 5,000 entries, we protect Redis RAM.
   const streamLen = await redis.xlen(streamKey);
   if (streamLen > 5000) {
-    console.warn(`[Audit-Throttle] 🌊 High water mark reached for ${streamKey} (${streamLen} entries). Triggering immediate emergency drain.`);
-    // Fire-and-forget to avoid blocking the hot-path latency
-    drainAuditStreams().catch(err => {
-      console.error(`[Audit-Throttle] 🚨 Emergency drain failed:`, err);
-    });
+    console.warn(`[Audit-Throttle] 🌊 High water mark reached for ${streamKey} (${streamLen} entries). Dispatching QStash emergency drain.`);
+    const qstashToken = process.env.QSTASH_TOKEN;
+    const appUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    
+    if (qstashToken) {
+      // Fire-and-forget QStash publish. It will hit the /api/cron/archive-audit endpoint, 
+      // ensuring the heavy GCP upload gets a full 300s serverless/cloud-run timeout, preventing cut-offs.
+      import('@upstash/qstash').then(({ Client }) => {
+        const qstash = new Client({ token: qstashToken });
+        return qstash.publishJSON({
+          url: `${appUrl}/api/cron/archive-audit`,
+          body: { reason: 'high_water_mark' }
+        });
+      }).catch(err => {
+        console.error(`[Audit-Throttle] 🚨 Failed to dispatch emergency drain to QStash:`, err);
+      });
+    } else {
+      console.warn(`[Audit-Throttle] ⚠️ QSTASH_TOKEN missing. Skipping emergency dispatch.`);
+    }
   }
 
   console.log(
@@ -183,12 +199,23 @@ export async function appendAuditLog(
  */
 export async function drainAuditStreams(): Promise<{ processed: number; streams: string[] }> {
   const redis = getRedis();
-  const rawTenants = await redis.smembers('active_audit_tenants');
-  const tenants = Array.from(new Set(['system', ...rawTenants]));
-  
-  const results = { processed: 0, streams: [] as string[] };
 
-  for (const tenant of tenants) {
+  // CONCURRENCY LOCK (Architectural Requirement: Drain Storm Prevention)
+  const LOCK_KEY = 'lock:audit_drain';
+  // set with NX and EX (30 seconds TTL)
+  const acquired = await redis.set(LOCK_KEY, 'locked', { nx: true, ex: 30 });
+  if (!acquired) {
+    console.warn('[Audit-Drain] ⚠️ Drain job is already locked by another worker. Aborting current execution to prevent Drain Storms.');
+    return { processed: 0, streams: [] };
+  }
+
+  try {
+    const rawTenants = await redis.smembers('active_audit_tenants');
+    const tenants = Array.from(new Set(['system', ...rawTenants]));
+    
+    const results = { processed: 0, streams: [] as string[] };
+
+    for (const tenant of tenants) {
     const key = resolveStreamKey(tenant);
     const entries = await readAuditLog(tenant, 1000); // Batch size 1000
     
@@ -233,9 +260,13 @@ export async function drainAuditStreams(): Promise<{ processed: number; streams:
     
     results.processed += entries.length;
     results.streams.push(key);
-  }
+    }
 
-  return results;
+    return results;
+  } finally {
+    // Release the concurrency lock so future crons/throttles can run
+    await redis.del(LOCK_KEY);
+  }
 }
 
 /* ─── Convenience Wrappers ────────────────────────────────────── */
