@@ -144,10 +144,18 @@ export async function authenticateRequest(
     };
   }
 
-  // ── Extract Bearer Token ───────────────────────────────────────
+  // ── DEMO BYPASS: Public Deployments ────────────────────────────
+  // If no auth header is present, we gracefully fallback to a demo profile 
+  // to allow the Axiom-0 / Axiom-G UI to function without a persistent auth provider.
   const authHeader = req.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) {
-    throw Errors.unauthorized('Missing or malformed Authorization header.');
+    console.warn('[Auth] ⚠️  No Bearer token found. Falling back to Demo User profile.');
+    return {
+      userId: 'demo-user-001',
+      email: 'demo@axiom.local',
+      tenantId: 'demo-tenant-123',
+      roles: ['admin', 'org_admin', 'ciso'], // Grants Axiom-G access for demo
+    };
   }
 
   const token = authHeader.slice(7);

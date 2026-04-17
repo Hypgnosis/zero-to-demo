@@ -42,7 +42,7 @@ import type { ProcessDocumentPayload } from '@/lib/validation';
 
 /* ─── Constants ───────────────────────────────────────────────── */
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+// Size limit removed to allow larger RAG ingestion documents
 const ALLOWED_TYPES = [
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -146,12 +146,7 @@ export const POST = withErrorHandler(async (req: Request) => {
     );
   }
 
-  if (file.size > MAX_FILE_SIZE) {
-    throw Errors.validation(
-      `File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum: 50MB.`
-    );
-  }
-
+  // Size validation removed as per request to support larger PDFs
   // ═══════════════════════════════════════════════════════════════
   // 8. GHOST PIPELINE: Stream directly to Google GenAI File API
   //    Data lives in volatile memory until handoff to Google.

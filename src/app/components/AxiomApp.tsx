@@ -550,7 +550,7 @@ export default function AxiomApp() {
                         {face === '0' ? t.face0Desc : t.faceGDesc}
                       </p>
                       <p className="text-[10px] text-[var(--text-muted)] opacity-50 uppercase tracking-widest">
-                        PDF · Max 50MB · {face === '0' ? 'Ephemeral Memory' : 'Governed Sovereignty'}
+                        PDF · {face === '0' ? 'Ephemeral Memory' : 'Governed Sovereignty'}
                       </p>
                     </div>
                   </div>
