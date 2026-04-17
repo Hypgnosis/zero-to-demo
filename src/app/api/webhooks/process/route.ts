@@ -83,7 +83,7 @@ export const POST = verifySignatureAppRouter(async (req: Request): Promise<Respo
       );
     }
 
-    const { jobId: jid, sessionId, genAiFileName, fileName, mode } = parseResult.data;
+    const { jobId: jid, sessionId, genAiFileName, fileName, mode, tenantId } = parseResult.data;
     jobId = jid;
     genAiFileToCleanup = genAiFileName;
 
@@ -257,7 +257,7 @@ RULES:
     });
 
     // 9. Upsert to mode-specific physical vector index
-    await upsertVectors(sessionId, mode, vectors);
+    await upsertVectors(sessionId, mode, tenantId, vectors);
 
     console.log(`[Process] Upserted ${vectors.length} vectors [${mode}] for session: ${sessionId}`);
 

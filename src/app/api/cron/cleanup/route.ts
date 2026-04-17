@@ -114,7 +114,7 @@ export async function GET(req: Request) {
 
           // Session is ephemeral (or missing — orphan key in ZSET, safe to clean).
           // Delete vector namespace on the EPHEMERAL index only.
-          await deleteNamespace(sessionId, 'ephemeral');
+          await deleteNamespace(sessionId, 'ephemeral', undefined);
           audit.namespacesDeleted++;
 
           // Delete Redis key ONLY AFTER namespace deletion succeeds

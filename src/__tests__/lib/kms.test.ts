@@ -16,10 +16,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { 
   decryptChunks, 
   resolveKeysForChunks, 
-  storeVersionKey, 
   initiateKeyRotation,
-  encrypt,
-  decrypt
+  encrypt
 } from '@/lib/kms';
 import { getRedis } from '@/lib/redis';
 

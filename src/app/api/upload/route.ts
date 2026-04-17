@@ -61,6 +61,23 @@ export const POST = withErrorHandler(async (req: Request) => {
   // 3. Resolve mode from X-Axiom-Mode header (FAIL-TO-EPHEMERAL)
   const mode = resolveMode(req.headers.get('x-axiom-mode'));
 
+  // ═══════════════════════════════════════════════════════════════
+  // 3b. DOUBLE-LOCK HANDSHAKE (Policy Check)
+  //
+  // We cross-reference the requested mode with user metadata.
+  // Governed mode REQUIRES a valid tenantId and an 'enterprise' flag.
+  // If the policy check fails, we degrade to 'ephemeral' mode
+  // regardless of the header, enforcing 'Sovereign-by-Policy'.
+  // ═══════════════════════════════════════════════════════════════
+  if (mode === 'governed') {
+    const isEligible = !!claims.tenantId && claims.roles.some(r => ['admin', 'org_admin', 'ciso'].includes(r));
+    
+    if (!isEligible) {
+      console.warn(`[Policy] 🚨 Governed mode upgrade blocked for user=${claims.userId}. Missing tenant/role.`);
+      throw Errors.forbidden('Your account does not have authorization for Governed Mode (Axiom-G).');
+    }
+  }
+
   // 4. Validate query params
   const url = new URL(req.url);
   const queryResult = UploadQuerySchema.safeParse({
@@ -198,6 +215,7 @@ export const POST = withErrorHandler(async (req: Request) => {
     genAiFileName: uploadedFile.name,
     fileName: file.name,
     mode,
+    tenantId: claims.tenantId,
   };
 
   await qstash.publishJSON({

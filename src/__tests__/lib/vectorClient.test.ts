@@ -67,11 +67,11 @@ describe('vectorClient', () => {
 
   describe('resolveNamespace', () => {
     it('prefixes ephemeral sessions with eph_', () => {
-      expect(resolveNamespace('abc-123', 'ephemeral')).toBe('eph_abc-123');
+      expect(resolveNamespace('abc-123', 'ephemeral', undefined)).toBe('eph_abc-123');
     });
 
     it('prefixes governed sessions with gov_', () => {
-      expect(resolveNamespace('abc-123', 'governed')).toBe('gov_abc-123');
+      expect(resolveNamespace('abc-123', 'governed', 'tenant-123')).toBe('gov_tenant-123_abc-123');
     });
   });
 
@@ -83,7 +83,7 @@ describe('vectorClient', () => {
         metadata: { source: 'test.pdf', chunkIndex: i, totalChunks: 5, text: `text-${i}`, parentMacroId: 'macro-test.pdf-0', macroText: 'full section text' },
       }));
 
-      await upsertVectors('session-123', 'ephemeral', vectors);
+      await upsertVectors('session-123', 'ephemeral', undefined, vectors);
 
       expect(mockNamespace).toHaveBeenCalledWith(`${NAMESPACE_PREFIX.EPHEMERAL}session-123`);
       expect(withRetry).toHaveBeenCalledTimes(1);
@@ -98,7 +98,7 @@ describe('vectorClient', () => {
         metadata: { source: 'big.pdf', chunkIndex: i, totalChunks: 250, text: `t-${i}`, parentMacroId: `macro-big.pdf-${Math.floor(i / 30)}`, macroText: 'macro' },
       }));
 
-      await upsertVectors('session-456', 'ephemeral', vectors);
+      await upsertVectors('session-456', 'ephemeral', undefined, vectors);
 
       expect(withRetry).toHaveBeenCalledTimes(3);
       expect(mockUpsert).toHaveBeenCalledTimes(3);
@@ -116,7 +116,7 @@ describe('vectorClient', () => {
         metadata: { source: 'doc.pdf', chunkIndex: 0, totalChunks: 1, text: 'hello', parentMacroId: 'macro-0', macroText: 'section', encryptionVersion: 'v1' },
       }];
 
-      await upsertVectors('gov-session', 'governed', vectors);
+      await upsertVectors('gov-session', 'governed', 'tenant-123', vectors);
 
       expect(mockNamespace).toHaveBeenCalledWith(`${NAMESPACE_PREFIX.GOVERNED}gov-session`);
     });
@@ -129,7 +129,7 @@ describe('vectorClient', () => {
         // encryptionVersion intentionally missing
       }];
 
-      await expect(upsertVectors('gov-session', 'governed', vectors))
+      await expect(upsertVectors('gov-session', 'governed', 'tenant-123', vectors))
         .rejects.toThrow(/BYOK compliance violation/);
 
       // Verify NO upsert was attempted
@@ -143,7 +143,7 @@ describe('vectorClient', () => {
         { id: 'c-0', score: 0.95, metadata: { source: 'doc.pdf', chunkIndex: 0, totalChunks: 1, text: 'hello', parentMacroId: 'macro-doc.pdf-0', macroText: 'section text' } },
       ]);
 
-      const results = await queryVectors('session-789', 'ephemeral', [0.1, 0.2], 5);
+      const results = await queryVectors('session-789', 'ephemeral', undefined, [0.1, 0.2], 5);
 
       expect(mockNamespace).toHaveBeenCalledWith(`${NAMESPACE_PREFIX.EPHEMERAL}session-789`);
       expect(mockQuery).toHaveBeenCalledWith({
@@ -161,7 +161,7 @@ describe('vectorClient', () => {
         { id: 'c-1', score: 0.8, metadata: { source: 'a.pdf', chunkIndex: 0, totalChunks: 1, text: 'ok', parentMacroId: 'macro-a.pdf-0', macroText: 'section' } },
       ]);
 
-      const results = await queryVectors('s', 'ephemeral', [0.1], 5);
+      const results = await queryVectors('s', 'ephemeral', undefined, [0.1], 5);
       expect(results).toHaveLength(1);
       expect(results[0]!.id).toBe('c-1');
     });
@@ -169,7 +169,7 @@ describe('vectorClient', () => {
 
   describe('deleteNamespace', () => {
     it('resets the correct ephemeral namespace', async () => {
-      await deleteNamespace('session-to-delete', 'ephemeral');
+      await deleteNamespace('session-to-delete', 'ephemeral', undefined);
       expect(mockNamespace).toHaveBeenCalledWith(`${NAMESPACE_PREFIX.EPHEMERAL}session-to-delete`);
       expect(mockReset).toHaveBeenCalledTimes(1);
     });
@@ -178,12 +178,12 @@ describe('vectorClient', () => {
   describe('namespaceHasVectors', () => {
     it('returns false when namespace is empty', async () => {
       mockRange.mockResolvedValueOnce({ vectors: [] });
-      expect(await namespaceHasVectors('empty-ns', 'ephemeral')).toBe(false);
+      expect(await namespaceHasVectors('empty-ns', 'ephemeral', undefined)).toBe(false);
     });
 
     it('returns true when namespace has vectors', async () => {
       mockRange.mockResolvedValueOnce({ vectors: [{ id: 'x' }] });
-      expect(await namespaceHasVectors('full-ns', 'ephemeral')).toBe(true);
+      expect(await namespaceHasVectors('full-ns', 'ephemeral', undefined)).toBe(true);
     });
   });
 });

@@ -40,7 +40,7 @@ export const POST = withErrorHandler(async (req: Request) => {
   const session = await validateSessionOwnership(sessionId, claims.userId);
 
   // 4. Verify namespace has vectors (on the correct physical index)
-  const hasVectors = await namespaceHasVectors(sessionId, session.mode);
+  const hasVectors = await namespaceHasVectors(sessionId, session.mode, claims.tenantId);
   if (!hasVectors) {
     throw Errors.noVectorData();
   }

@@ -16,6 +16,7 @@
     "proxy:deploy": "cd voice-proxy && bash deploy.sh"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.19.0",
     "@google/genai": "^1.48.0",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",

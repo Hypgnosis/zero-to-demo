@@ -27,6 +27,7 @@
  */
 
 import { getRedis } from './redis';
+import { Storage } from '@google-cloud/storage';
 
 /* ─── Types ───────────────────────────────────────────────────── */
 
@@ -145,11 +146,84 @@ export async function appendAuditLog(
   // '*' tells Redis to auto-generate a unique, monotonically increasing ID.
   const streamId = await redis.xadd(streamKey, '*', fields);
 
+  // Phase 5 Trace: Register this tenant in the active audit set for the draining worker.
+  // This allows the archiver to find all streams without using the 'KEYS' command.
+  if (tenantId && tenantId !== 'system') {
+    await redis.sadd('active_audit_tenants', tenantId);
+  }
+
   console.log(
     `[Audit] ${action} | actor=${actorId} | resource=${resourceId} | stream=${streamKey} | id=${streamId}`
   );
 
   return streamId as string;
+}
+
+/**
+ * Drains and archives all active audit streams.
+ *
+ * Pattern:
+ * 1. Fetch all tenantIds from 'active_audit_tenants'.
+ * 2. For each tenant (and 'system'):
+ *    a) XRANGE all entries.
+ *    b) Log/Archive (Mocking BigQuery handoff).
+ *    c) XTRIM to clear the stream after confirmation.
+ */
+export async function drainAuditStreams(): Promise<{ processed: number; streams: string[] }> {
+  const redis = getRedis();
+  const rawTenants = await redis.smembers('active_audit_tenants');
+  const tenants = Array.from(new Set(['system', ...rawTenants]));
+  
+  const results = { processed: 0, streams: [] as string[] };
+
+  for (const tenant of tenants) {
+    const key = resolveStreamKey(tenant);
+    const entries = await readAuditLog(tenant, 1000); // Batch size 1000
+    
+    if (entries.length === 0) continue;
+
+    // ═══════════════════════════════════════════════════════════════
+    // ARCHIVE HANDOFF (Architectural Requirement #3)
+    // Converts entries to JSONL and uploads to a GCS bucket.
+    // ═══════════════════════════════════════════════════════════════
+    console.log(`[Audit-Drain] Archiving ${entries.length} entries for stream=${key}`);
+    
+    const bucketName = process.env.AUDIT_ARCHIVE_BUCKET;
+    if (bucketName) {
+      try {
+        const storage = new Storage();
+        const bucket = storage.bucket(bucketName);
+        const dateStr = new Date().toISOString().split('T')[0];
+        // Ensure tenant identity is preserved in path for SOC2 data sovereignty checks
+        const cleanTenant = tenant.replace(/[^a-zA-Z0-9-_]/g, '_');
+        const filename = `audit/tenant=${cleanTenant}/date=${dateStr}/${Date.now()}.jsonl`;
+        const file = bucket.file(filename);
+
+        const jsonl = entries.map(e => JSON.stringify({ streamId: e.streamId, ...e.entry })).join('\n');
+        await file.save(jsonl, {
+          contentType: 'application/json', // Can be application/jsonl or application/x-ndjson
+        });
+        console.log(`[Audit-Drain] 🔒 Successfully persisted to GCP: gs://${bucketName}/${filename}`);
+      } catch (gcsErr) {
+        console.error(`[Audit-Drain] 🚨 GCS Upload failed for ${key}:`, gcsErr);
+        // Hard security constraint: DO NOT trim the stream if persistence fails!
+        continue; 
+      }
+    } else {
+      console.warn(`[Audit-Drain] ⚠️ AUDIT_ARCHIVE_BUCKET not set. Skipping physical GCP archive for ${key}.`);
+    }
+
+    // Once physically archived (or purposefully bypassed if bucket omitted), we trim.
+    // We trim everything UP TO the last read ID to safely free Redis memory.
+    const lastId = entries[entries.length - 1].streamId;
+    // @ts-expect-error Upstash Redis types don't officially support MINID but the server does
+    await redis.xtrim(key, 'MINID', lastId);
+    
+    results.processed += entries.length;
+    results.streams.push(key);
+  }
+
+  return results;
 }
 
 /* ─── Convenience Wrappers ────────────────────────────────────── */

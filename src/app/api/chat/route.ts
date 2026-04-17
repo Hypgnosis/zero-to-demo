@@ -70,7 +70,7 @@ export const POST = withErrorHandler(async (req: Request) => {
   const { mode } = session;
 
   // 5. Verify namespace has vectors (on the correct physical index)
-  const hasVectors = await namespaceHasVectors(sessionId, mode);
+  const hasVectors = await namespaceHasVectors(sessionId, mode, claims.tenantId);
   if (!hasVectors) {
     throw Errors.noVectorData();
   }
@@ -85,7 +85,7 @@ export const POST = withErrorHandler(async (req: Request) => {
   const queryVector = await embedText(lastUserMessage.content);
 
   // 8. Query micro-chunks on the MODE-SPECIFIC physical index
-  const microResults = await queryVectors(sessionId, mode, queryVector, MICRO_TOP_K);
+  const microResults = await queryVectors(sessionId, mode, claims.tenantId, queryVector, MICRO_TOP_K);
 
   // ═══════════════════════════════════════════════════════════════
   // 9. MULTI-VERSION DECRYPTION LAYER (Phase 3: 2 AM Risk Remedy)

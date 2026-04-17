@@ -89,58 +89,45 @@ function getVectorIndex(mode: AxiomMode): Index {
 
 /**
  * Constructs the prefixed namespace string for a session.
- * The prefix is derived from the mode via NAMESPACE_PREFIX constants.
+ * The prefix is derived from the mode via NAMESPACE_PREFIX constants,
+ * AND strictly bound to the tenant_id to prevent cross-tenant vector contamination.
  *
  * @param sessionId - Raw session UUID.
  * @param mode      - The operational mode (ephemeral or governed).
- * @returns Prefixed namespace string (e.g., "eph_abc123" or "gov_abc123").
+ * @param tenantId  - The verified tenant ID from the JWT.
+ * @returns Prefixed namespace string (e.g., "eph_tenantId_abc123" or "gov_tenantId_abc123").
  */
-export function resolveNamespace(sessionId: string, mode: AxiomMode): string {
+export function resolveNamespace(sessionId: string, mode: AxiomMode, tenantId: string | undefined): string {
   const prefix = mode === 'governed'
     ? NAMESPACE_PREFIX.GOVERNED
     : NAMESPACE_PREFIX.EPHEMERAL;
-  return `${prefix}${sessionId}`;
+  const tn = tenantId && tenantId.trim() !== '' ? tenantId : 'anon';
+  return `${prefix}${tn}_${sessionId}`;
 }
 
 /* ─── Upsert ──────────────────────────────────────────────────── */
 
-/**
- * Inserts vectors into the mode-scoped namespace on the correct physical index.
- *
- * BYOK VALIDATION (Architectural Condition #3):
- * If mode === 'governed', every vector MUST have a non-empty encryptionVersion.
- * Unversioned data in the enterprise index is a compliance violation —
- * we throw BEFORE any data reaches the index.
- *
- * Strategy:
- * - Batches upserts into groups of 100 to respect API payload limits.
- * - Each batch is wrapped in withRetry() for exponential backoff on 429s.
- * - Sequential batch execution prevents thundering herd on the index.
- */
 export async function upsertVectors(
   sessionId: string,
   mode: AxiomMode,
+  tenantId: string | undefined,
   vectors: { id: string; vector: number[]; metadata: VectorMetadata }[]
 ): Promise<void> {
   // ═══════════════════════════════════════════════════════════════
-  // BYOK VALIDATION GATE (Architectural Condition #3)
-  // Governed data without encryptionVersion = compliance violation.
-  // We check ALL vectors BEFORE upserting ANY — atomic reject.
+  // BYOK VALIDATION GATE
   // ═══════════════════════════════════════════════════════════════
   if (mode === 'governed') {
     for (let i = 0; i < vectors.length; i++) {
       if (!vectors[i]!.metadata.encryptionVersion) {
         throw Errors.securityViolation(
-          `Governed vector ${vectors[i]!.id} (index ${i}) is missing encryptionVersion. ` +
-          `Unversioned data cannot enter the enterprise index. ` +
-          `This is a BYOK compliance violation.`
+          `Governed vector ${vectors[i]!.id} (index ${i}) is missing encryptionVersion.`
         );
       }
     }
   }
 
   const index = getVectorIndex(mode);
-  const namespace = resolveNamespace(sessionId, mode);
+  const namespace = resolveNamespace(sessionId, mode, tenantId);
   const ns = index.namespace(namespace);
 
   const BATCH_SIZE = 100;
@@ -170,18 +157,15 @@ export interface VectorQueryResult {
   metadata: VectorMetadata;
 }
 
-/**
- * Queries the mode-scoped namespace for similar vectors.
- * Returns top-K results with metadata.
- */
 export async function queryVectors(
   sessionId: string,
   mode: AxiomMode,
+  tenantId: string | undefined,
   queryVector: number[],
   topK: number = 5
 ): Promise<VectorQueryResult[]> {
   const index = getVectorIndex(mode);
-  const namespace = resolveNamespace(sessionId, mode);
+  const namespace = resolveNamespace(sessionId, mode, tenantId);
   const ns = index.namespace(namespace);
 
   const results = await ns.query<VectorMeta>({
@@ -201,30 +185,26 @@ export async function queryVectors(
 
 /* ─── Namespace Management ────────────────────────────────────── */
 
-/**
- * Checks if a namespace has any vectors.
- */
 export async function namespaceHasVectors(
   sessionId: string,
-  mode: AxiomMode
+  mode: AxiomMode,
+  tenantId: string | undefined
 ): Promise<boolean> {
   const index = getVectorIndex(mode);
-  const namespace = resolveNamespace(sessionId, mode);
+  const namespace = resolveNamespace(sessionId, mode, tenantId);
   const ns = index.namespace(namespace);
   const probe = await ns.range({ cursor: 0, limit: 1 });
   return probe.vectors.length > 0;
 }
 
-/**
- * Retrieves ALL text content from a namespace (for voice agent context injection).
- */
 export async function getNamespaceContext(
   sessionId: string,
   mode: AxiomMode,
+  tenantId: string | undefined,
   maxChunks: number = 50
 ): Promise<string> {
   const index = getVectorIndex(mode);
-  const namespace = resolveNamespace(sessionId, mode);
+  const namespace = resolveNamespace(sessionId, mode, tenantId);
   const ns = index.namespace(namespace);
 
   const results = await ns.range<VectorMeta>({
@@ -241,19 +221,13 @@ export async function getNamespaceContext(
     .join('\n\n---\n\n');
 }
 
-/**
- * Deletes all vectors in a session namespace.
- *
- * SECURITY: This function requires an explicit mode parameter.
- * The cleanup cron MUST only call this with mode='ephemeral'.
- * Governed namespace deletion requires a separate admin pathway.
- */
 export async function deleteNamespace(
   sessionId: string,
-  mode: AxiomMode
+  mode: AxiomMode,
+  tenantId: string | undefined
 ): Promise<void> {
   const index = getVectorIndex(mode);
-  const namespace = resolveNamespace(sessionId, mode);
+  const namespace = resolveNamespace(sessionId, mode, tenantId);
   const ns = index.namespace(namespace);
   await ns.reset();
 }

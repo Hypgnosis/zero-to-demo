@@ -69,6 +69,7 @@ export const ProcessDocumentPayloadSchema = z.object({
   fileName: z.string().min(1),
   /** Phase 5: The mode that was active when the upload was accepted. */
   mode: z.enum(['ephemeral', 'governed']),
+  tenantId: z.string().optional(),
 });
 
 /* ─── Voice Handshake ─────────────────────────────────────────── */

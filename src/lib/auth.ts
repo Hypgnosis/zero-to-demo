@@ -185,13 +185,16 @@ export async function authenticateRequest(
 
     // ── Admin Fortress Gate ──────────────────────────────────────
     // We use 403 Forbidden — not 401 — to distinguish "valid auth,
-    // insufficient privilege" from "invalid auth." This is standard
-    // RBAC practice and prevents role probing via status codes alone.
-    if (options.requireAdmin && !roles.includes('admin')) {
+    // insufficient privilege" from "invalid auth."
+    const hasAdminPrivilege = roles.some((r) => 
+      ['admin', 'org_admin', 'ciso'].includes(r)
+    );
+
+    if (options.requireAdmin && !hasAdminPrivilege) {
       console.warn(
         `[Auth] 🚨 Admin route denied for userId=${userId} (roles: [${roles.join(', ')}])`
       );
-      throw Errors.forbidden('Admin privileges required to perform this action.');
+      throw Errors.forbidden('Admin or CISO privileges required to perform this action.');
     }
 
     return {
