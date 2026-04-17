@@ -1,94 +1,45 @@
 /**
  * ═══════════════════════════════════════════════════════════════════
  * AXIOM-0 — Embedding Generation
- * Uses @google/genai SDK directly (no LangChain wrappers).
- * Generates vector embeddings via gemini-embedding-001.
+ * Uses the stable @google/generative-ai SDK.
  * ═══════════════════════════════════════════════════════════════════
  */
 
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const EMBEDDING_MODEL = 'gemini-embedding-001';
+const EMBEDDING_MODEL = 'text-embedding-004';
 
-/** Concurrency limit for parallel embedding calls. */
-const CONCURRENCY_LIMIT = 5;
+let aiClient: GoogleGenerativeAI | null = null;
 
-/* ─── Singleton Client ────────────────────────────────────────── */
-
-let aiClient: GoogleGenAI | null = null;
-
-function getAI(): GoogleGenAI {
+function getAI(): GoogleGenerativeAI {
   if (!aiClient) {
     const apiKey = process.env.GOOGLE_GENAI_API_KEY || process.env.GOOGLE_API_KEY;
     if (!apiKey) {
       throw new Error('Neither GOOGLE_GENAI_API_KEY nor GOOGLE_API_KEY is set in environment.');
     }
-    console.log(`[AI] Initializing GenAI Client with key prefix: ${apiKey.substring(0, 4)}...`);
-    
-    // Using the unified SDK constructor with explicit API Key auth
-    aiClient = new GoogleGenAI({ 
-      apiKey,
-    });
+    console.log(`[AI] Initializing Stable Client with key prefix: ${apiKey.substring(0, 4)}...`);
+    aiClient = new GoogleGenerativeAI(apiKey);
   }
   return aiClient;
 }
 
-/* ─── Single Embedding ────────────────────────────────────────── */
-
-/**
- * Generates an embedding for a single text string.
- */
 export async function embedText(text: string): Promise<number[]> {
   const ai = getAI();
-  const result = await ai.models.embedContent({
-    model: EMBEDDING_MODEL,
-    contents: text,
-  });
+  const model = ai.getGenerativeModel({ model: EMBEDDING_MODEL });
+  const result = await model.embedContent(text);
 
-  if (!result.embeddings || result.embeddings.length === 0) {
-    throw new Error('Embedding generation returned no results.');
+  if (!result.embedding || !result.embedding.values) {
+    throw new Error('Embedding generation failed.');
   }
 
-  const values = result.embeddings[0]?.values;
-  if (!values) {
-    throw new Error('Embedding values are undefined.');
-  }
-
-  return values;
+  return result.embedding.values;
 }
 
-/* ─── Batch Embeddings ────────────────────────────────────────── */
-
-/**
- * Generates embeddings for multiple texts with controlled concurrency.
- * Does NOT use inlineData for large payloads — processes text-only.
- *
- * @param texts - Array of text strings to embed.
- * @returns Array of embedding vectors in the same order as input.
- */
 export async function embedTexts(texts: string[]): Promise<number[][]> {
-  const results: number[][] = new Array(texts.length);
-
-  // Process in batches with concurrency limit
-  for (let i = 0; i < texts.length; i += CONCURRENCY_LIMIT) {
-    const batch = texts.slice(i, i + CONCURRENCY_LIMIT);
-    const batchPromises = batch.map((text, batchIndex) =>
-      embedText(text).then((embedding) => {
-        results[i + batchIndex] = embedding;
-      })
-    );
-    await Promise.all(batchPromises);
-  }
-
-  return results;
+  // Simple map for now, the SDK handles some batching internally
+  return Promise.all(texts.map(t => embedText(t)));
 }
 
-/* ─── Google GenAI Client Export (for File API usage) ──────────── */
-
-/**
- * Returns the singleton GoogleGenAI client for use with the File API.
- * Used by the document processing webhook.
- */
-export function getGenAIClient(): GoogleGenAI {
+export function getGenAIClient(): GoogleGenerativeAI {
   return getAI();
 }
