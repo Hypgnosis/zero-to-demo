@@ -99,4 +99,7 @@ export const POST = verifySignatureAppRouter(async (req: Request): Promise<Respo
       { status: 500 }
     );
   }
+}, {
+  currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY || 'dummy_current_key',
+  nextSigningKey: process.env.QSTASH_NEXT_SIGNING_KEY || 'dummy_next_key'
 });
