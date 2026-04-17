@@ -24,7 +24,11 @@ function getAI(): GoogleGenAI {
       throw new Error('Neither GOOGLE_GENAI_API_KEY nor GOOGLE_API_KEY is set in environment.');
     }
     console.log(`[AI] Initializing GenAI Client with key prefix: ${apiKey.substring(0, 4)}...`);
-    aiClient = new GoogleGenAI({ apiKey });
+    
+    // Using the unified SDK constructor with explicit API Key auth
+    aiClient = new GoogleGenAI({ 
+      apiKey,
+    });
   }
   return aiClient;
 }
