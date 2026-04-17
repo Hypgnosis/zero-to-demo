@@ -1,34 +1,18 @@
 # ═══════════════════════════════════════════════════════════════════
 # Netlify Configuration — Axiom-G Zero-Trust RAG Engine
-#
-# Next.js 16 on Netlify requires @netlify/plugin-nextjs.
-# All API routes (including QStash webhooks) run as Netlify Functions.
-#
-# CRITICAL: Set all environment variables in the Netlify Dashboard
-# under Site Settings → Environment Variables. NEVER commit secrets.
 # ═══════════════════════════════════════════════════════════════════
 
 [build]
   command = "npm run build"
-  publish = ".next"
-
-# Next.js plugin — handles SSR, API routes, ISR, and middleware
-[[plugins]]
-  package = "@netlify/plugin-nextjs"
+  # publish directory is automatically detected by Next.js advanced runtime
 
 # ─── Function Configuration ──────────────────────────────────────
-# QStash webhooks and re-encryption workers need extended timeouts.
-# Netlify Functions default to 10s; we need 300s for document processing.
-
 [functions]
-  # Increase timeout for background processing functions
-  # Note: Netlify Pro/Business plans support up to 26s for sync functions.
-  # For longer operations, use Netlify Background Functions (suffix -background).
   node_bundler = "esbuild"
+  # Let the Next.js runtime handle routing. We do not need SPA rewrites.
 
 # ─── Headers ─────────────────────────────────────────────────────
 # Security headers for enterprise compliance.
-
 [[headers]]
   for = "/*"
   [headers.values]
@@ -38,17 +22,3 @@
     Permissions-Policy = "camera=(), microphone=(self), geolocation=()"
     X-XSS-Protection = "1; mode=block"
     Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
-
-# ─── Redirects ───────────────────────────────────────────────────
-# SPA fallback for client-side routing.
-
-[[redirects]]
-  from = "/api/*"
-  to = "/api/:splat"
-  status = 200
-
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
-  conditions = {Role = ["admin"]}
