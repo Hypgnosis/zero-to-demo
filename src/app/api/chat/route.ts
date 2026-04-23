@@ -36,7 +36,7 @@ import { decryptChunks } from '@/lib/kms';
 
 /* ─── Constants ───────────────────────────────────────────────── */
 
-const CHAT_MODEL = 'gemini-2.0-flash';
+const CHAT_MODEL = 'gemini-2.5-flash';
 
 /**
  * TOP_K for micro-chunk search.

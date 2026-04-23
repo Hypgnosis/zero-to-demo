@@ -25,7 +25,7 @@ import type { VectorMetadata } from '@/lib/types';
 export const maxDuration = 300; // 5 minutes
 export const dynamic = 'force-dynamic';
 
-const EXTRACTION_MODEL = 'gemini-2.0-flash';
+const EXTRACTION_MODEL = 'gemini-2.5-flash';
 const FILE_POLL_INTERVAL_MS = 2000;
 const FILE_POLL_MAX_ATTEMPTS = 90; // 3 minutes max wait
 const MAX_MACRO_TEXT_BYTES = 30_000;
