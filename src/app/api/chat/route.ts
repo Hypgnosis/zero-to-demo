@@ -23,14 +23,14 @@
  */
 
 import { NextResponse } from 'next/server';
-import { GoogleGenAI, type Content } from '@google/genai';
 
 import { withErrorHandler, Errors } from '@/lib/errors';
 import { authenticateRequest } from '@/lib/auth';
 import { enforceRateLimit } from '@/lib/rateLimit';
 import { ChatRequestSchema } from '@/lib/validation';
 import { validateSessionOwnership } from '@/lib/redis';
-import { embedText } from '@/lib/embeddings';
+import { embedText, getGenAIClient } from '@/lib/embeddings';
+import type { Content } from '@/lib/embeddings';
 import { queryVectors, namespaceHasVectors } from '@/lib/vectorClient';
 import { decryptChunks } from '@/lib/kms';
 
@@ -171,13 +171,8 @@ ${contextBlock}`;
     parts: [{ text: m.content }],
   }));
 
-  // 13. Initialize Gemini client
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) {
-    throw Errors.configMissing('GOOGLE_API_KEY');
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
+  // 13. Initialize Gemini client via shared singleton
+  const ai = getGenAIClient();
 
   // 14. Stream response
   const stream = new ReadableStream({
