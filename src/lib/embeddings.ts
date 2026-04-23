@@ -75,11 +75,7 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
 
 /* ─── GenAI Client Export (for Chat / Processing) ─────────────── */
 
-export function getGenAIClient(): GoogleGenAI {
-  return getAI();
-}
 
-/* ═══════════════════════════════════════════════════════════════════
  * DIRECT REST FILE UPLOAD
  *
  * The @google/genai SDK's files.upload() sends a malformed auth

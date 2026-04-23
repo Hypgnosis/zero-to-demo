@@ -28,14 +28,13 @@ process.env.AXIOM_AUTH_BYPASS = 'true';
 
 // Mock Google GenAI (Ghost Pipeline — replaces Vercel Blob)
 vi.mock('@/lib/embeddings', () => ({
-  getGenAIClient: vi.fn().mockReturnValue({
-    files: {
-      upload: vi.fn().mockResolvedValue({
-        name: 'files/mock-genai-file-001',
-        uri: 'https://generativelanguage.googleapis.com/v1/files/mock-genai-file-001',
-        state: 'ACTIVE',
-      }),
-    },
+  getApiKey: vi.fn().mockReturnValue('mock-google-key'),
+  uploadFileToGenAI: vi.fn().mockResolvedValue({
+    name: 'files/mock-genai-file-001',
+    uri: 'https://generativelanguage.googleapis.com/v1beta/files/mock-genai-file-001',
+    displayName: 'mock.pdf',
+    mimeType: 'application/pdf',
+    state: 'ACTIVE',
   }),
   embedText: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
   embedTexts: vi.fn().mockResolvedValue([[0.1, 0.2, 0.3]]),

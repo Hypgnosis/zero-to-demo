@@ -43,24 +43,28 @@ vi.mock('@/lib/vectorClient', () => ({
 // Mock embeddings
 vi.mock('@/lib/embeddings', () => ({
   embedText: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
-  embedTexts: vi.fn().mockResolvedValue([[0.1, 0.2, 0.3]]),
-  getGenAIClient: vi.fn(),
+  getApiKey: vi.fn().mockReturnValue('test-key'),
 }));
 
-// Mock Google GenAI for streaming chat
-vi.mock('@google/genai', () => {
-  return {
-    GoogleGenAI: class MockGenAI {
-      models = {
-        generateContentStream: vi.fn().mockResolvedValue({
-          async *[Symbol.asyncIterator]() {
-            yield { text: 'Based on the catalog, widgets cost $50.' };
-          },
-        }),
+// Mock global fetch for Direct REST API
+global.fetch = vi.fn().mockResolvedValue({
+  ok: true,
+  body: {
+    getReader: () => {
+      let isDone = false;
+      return {
+        read: async () => {
+          if (isDone) return { done: true, value: undefined };
+          isDone = true;
+          const textChunk = `data: ${JSON.stringify({
+            candidates: [{ content: { parts: [{ text: 'Based on the catalog, widgets cost $50.' }] } }]
+          })}\n\n`;
+          return { done: false, value: new TextEncoder().encode(textChunk) };
+        }
       };
-    },
-  };
-});
+    }
+  }
+} as unknown as Response);
 
 // Mock auth PEP (Phase 1)
 vi.mock('@/lib/auth', () => ({
