@@ -8,7 +8,7 @@
  * ═══════════════════════════════════════════════════════════════════
  */
 
-import { GoogleGenAI } from '@google/genai';
+
 export type { Content } from '@google/genai';
 
 const EMBEDDING_MODEL = 'gemini-embedding-001';
