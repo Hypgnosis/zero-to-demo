@@ -28,7 +28,7 @@
 
 import { NextResponse } from 'next/server';
 import { getExpiredSessionIds, getSession, deleteSession } from '@/lib/redis';
-import { getGenAIClient } from '@/lib/embeddings';
+import { getApiKey, deleteGenAIFile } from '@/lib/embeddings';
 import { deleteNamespace } from '@/lib/vectorClient';
 import { NAMESPACE_PREFIX } from '@/lib/types';
 
@@ -143,42 +143,53 @@ export async function GET(req: Request) {
     // batch ingestions that exceed the 4h threshold.
     // ═══════════════════════════════════════════════════════════════
     try {
-      const ai = getGenAIClient();
+      const apiKey = getApiKey();
       const now = Date.now();
 
       console.log('[Cron Cleanup] Stage 2: Scanning for orphaned GenAI files...');
 
-      const fileList = await ai.files.list();
+      let pageToken = '';
       let scannedCount = 0;
+      let hasNextPage = true;
 
-      for await (const file of fileList) {
-        scannedCount++;
+      while (hasNextPage) {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/files?key=${apiKey}${pageToken ? `&pageToken=${pageToken}` : ''}`);
+        if (!res.ok) break;
+        
+        const data = await res.json();
+        const files = data.files || [];
+        
+        for (const file of files) {
+          scannedCount++;
 
-        if (!file.createTime || !file.name) continue;
+          if (!file.createTime || !file.name) continue;
 
-        // MODE-AWARE ORPHAN CHECK: Skip governed files entirely.
-        if (file.displayName?.startsWith(GOV_FILE_PREFIX)) {
-          audit.genAiGovernedSkipped++;
-          continue;
-        }
-
-        const fileAge = now - new Date(file.createTime).getTime();
-
-        if (fileAge > ORPHAN_AGE_MS) {
-          try {
-            await ai.files.delete({ name: file.name });
-            audit.genAiOrphansPurged++;
-            console.log(
-              `[Cron Cleanup] 🗑️ Orphan purged: ${file.name} ` +
-              `(age: ${(fileAge / 3600000).toFixed(1)}h, display: ${file.displayName ?? 'unknown'})`
-            );
-          } catch (deleteErr) {
-            const msg = `GenAI orphan delete failed: ${file.name} — ${
-              deleteErr instanceof Error ? deleteErr.message : 'Unknown'
-            }`;
-            console.error(`[Cron Cleanup] ${msg}`);
-            audit.errors.push(msg);
+          // MODE-AWARE ORPHAN CHECK: Skip governed files entirely.
+          if (file.displayName?.startsWith(GOV_FILE_PREFIX)) {
+            audit.genAiGovernedSkipped++;
+            continue;
           }
+
+          const createdAt = new Date(file.createTime).getTime();
+          const ageMs = now - createdAt;
+
+          if (ageMs > ORPHAN_AGE_MS) {
+            try {
+              await deleteGenAIFile(file.name);
+              audit.genAiOrphansPurged++;
+              console.log(`[Cron Cleanup] Purged orphaned ephemeral file: ${file.name} (Age: ${(ageMs / 3600000).toFixed(1)}h)`);
+            } catch (err) {
+              const msg = `GenAI orphan delete failed: ${file.name}`;
+              console.error(`[Cron Cleanup] ${msg}`, err);
+              audit.errors.push(msg);
+            }
+          }
+        }
+        
+        if (data.nextPageToken) {
+          pageToken = data.nextPageToken;
+        } else {
+          hasNextPage = false;
         }
       }
 

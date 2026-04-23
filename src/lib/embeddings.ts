@@ -26,34 +26,32 @@ export function getApiKey(): string {
 
 /* ─── Singleton Client ────────────────────────────────────────── */
 
-let aiClient: GoogleGenAI | null = null;
-
-function getAI(): GoogleGenAI {
-  if (!aiClient) {
-    const apiKey = getApiKey();
-    console.log(`[AI] Initializing GenAI client (key prefix: ${apiKey.substring(0, 4)}…)`);
-    aiClient = new GoogleGenAI({ apiKey });
-  }
-  return aiClient;
-}
+// SDK decoupled in favor of direct REST
 
 /* ─── Single Embedding ────────────────────────────────────────── */
 
 export async function embedText(text: string): Promise<number[]> {
-  const ai = getAI();
-  const result = await ai.models.embedContent({
-    model: EMBEDDING_MODEL,
-    contents: text,
+  const apiKey = getApiKey();
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:embedContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: `models/${EMBEDDING_MODEL}`,
+      content: { parts: [{ text }] }
+    })
   });
 
-  if (!result.embeddings || result.embeddings.length === 0) {
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Embedding generation failed (${res.status}): ${errText}`);
+  }
+
+  const result = await res.json();
+  const values = result.embedding?.values;
+  if (!values || values.length === 0) {
     throw new Error('Embedding generation returned no results.');
   }
 
-  const values = result.embeddings[0]?.values;
-  if (!values) {
-    throw new Error('Embedding values are undefined.');
-  }
   return values;
 }
 
