@@ -15,7 +15,7 @@ import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { ProcessDocumentPayloadSchema } from '@/lib/validation';
 import { updateJob } from '@/lib/redis';
 import { upsertVectors } from '@/lib/vectorClient';
-import { embedTexts, getGenAIClient, getGenAIFile, deleteGenAIFile } from '@/lib/embeddings';
+import { embedTexts, getApiKey, getGenAIFile, deleteGenAIFile } from '@/lib/embeddings';
 import { splitHierarchical } from '@/lib/textSplitter';
 import { encrypt, ensureKeyInitialized } from '@/lib/kms';
 import type { VectorMetadata } from '@/lib/types';
@@ -64,28 +64,33 @@ async function handler(req: Request) {
     }
 
     // 2. Extract content using Gemini SDK
-    const ai = getGenAIClient();
-    const extractionResult = await ai.models.generateContent({
-      model: EXTRACTION_MODEL,
-      contents: [
-        {
-          role: 'user',
-          parts: [
+    const apiKey = getApiKey();
+    const generateRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${EXTRACTION_MODEL}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
             {
-              fileData: {
-                mimeType: fileInfo.mimeType,
-                fileUri: fileInfo.uri,
-              },
-            },
-            {
-              text: 'Extract the full text of this document. Preserve structure including headers, tables, and lists. No commentary.',
+              role: 'user',
+              parts: [
+                { fileData: { mimeType: fileInfo.mimeType, fileUri: fileInfo.uri } },
+                { text: 'Extract the full text of this document. Preserve structure including headers, tables, and lists. No commentary.' },
+              ],
             },
           ],
-        },
-      ],
-    });
+        }),
+      }
+    );
 
-    const fullText = extractionResult.text;
+    if (!generateRes.ok) {
+      const errText = await generateRes.text();
+      throw new Error(`GenAI extraction failed (${generateRes.status}): ${errText}`);
+    }
+
+    const extractionData = await generateRes.json();
+    const fullText = extractionData.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!fullText) throw new Error('No text extracted from document.');
 
     console.log(`[Processor] Extracted ${fullText.length} chars from ${fileName}`);

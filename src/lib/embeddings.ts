@@ -16,7 +16,7 @@ const CONCURRENCY_LIMIT = 5;
 
 /* ─── API Key ─────────────────────────────────────────────────── */
 
-function getApiKey(): string {
+export function getApiKey(): string {
   const key = process.env.GOOGLE_GENAI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!key) {
     throw new Error('Neither GOOGLE_GENAI_API_KEY nor GOOGLE_API_KEY is set.');

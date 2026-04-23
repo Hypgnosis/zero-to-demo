@@ -29,7 +29,7 @@ import { authenticateRequest } from '@/lib/auth';
 import { enforceRateLimit } from '@/lib/rateLimit';
 import { ChatRequestSchema } from '@/lib/validation';
 import { validateSessionOwnership } from '@/lib/redis';
-import { embedText, getGenAIClient } from '@/lib/embeddings';
+import { embedText, getApiKey } from '@/lib/embeddings';
 import type { Content } from '@/lib/embeddings';
 import { queryVectors, namespaceHasVectors } from '@/lib/vectorClient';
 import { decryptChunks } from '@/lib/kms';
@@ -171,37 +171,67 @@ ${contextBlock}`;
     parts: [{ text: m.content }],
   }));
 
-  // 13. Initialize Gemini client via shared singleton
-  const ai = getGenAIClient();
+  // 13. Initialize API key
+  const apiKey = getApiKey();
+  const payload = {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [
+      ...conversationHistory,
+      { role: 'user', parts: [{ text: lastUserMessage.content }] },
+    ],
+    generationConfig: {
+      temperature: 0.3,
+      maxOutputTokens: 4096,
+    }
+  };
 
-  // 14. Stream response
+  // 14. Stream response using Direct REST to bypass SDK auth formatting issues
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
 
       try {
-        const response = await ai.models.generateContentStream({
-          model: CHAT_MODEL,
-          contents: [
-            ...conversationHistory,
-            {
-              role: 'user',
-              parts: [{ text: lastUserMessage.content }],
-            },
-          ],
-          config: {
-            systemInstruction: systemPrompt,
-            temperature: 0.3,
-            maxOutputTokens: 4096,
-          },
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${CHAT_MODEL}:streamGenerateContent?alt=sse&key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
         });
 
-        for await (const chunk of response) {
-          const text = chunk.text;
-          if (text) {
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ type: 'text', content: text })}\n\n`)
-            );
+        if (!response.ok) {
+          throw new Error(`Gemini stream failed: ${response.status} ${await response.text()}`);
+        }
+
+        if (!response.body) throw new Error('No response body');
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // keep the last partial line
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.slice(6);
+              if (dataStr === '[DONE]') continue;
+              
+              try {
+                const data = JSON.parse(dataStr);
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (text) {
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ type: 'text', content: text })}\n\n`)
+                  );
+                }
+              } catch (e) {
+                // Ignore parse errors for incomplete chunks
+              }
+            }
           }
         }
 
