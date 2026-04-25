@@ -12,7 +12,6 @@
 export type { Content } from '@google/genai';
 
 const EMBEDDING_MODEL = 'gemini-embedding-001';
-const CONCURRENCY_LIMIT = 5;
 
 /* ─── API Key ─────────────────────────────────────────────────── */
 
@@ -55,22 +54,50 @@ export async function embedText(text: string): Promise<number[]> {
   return values;
 }
 
-/* ─── Batch Embeddings ────────────────────────────────────────── */
+/* ─── Batch Embeddings (Single REST Call) ─────────────────────── */
+
+const BATCH_LIMIT = 100; // Max texts per batchEmbedContents call
 
 export async function embedTexts(texts: string[]): Promise<number[][]> {
-  const results: number[][] = new Array(texts.length);
+  const apiKey = getApiKey();
+  const allEmbeddings: number[][] = new Array(texts.length);
 
-  for (let i = 0; i < texts.length; i += CONCURRENCY_LIMIT) {
-    const batch = texts.slice(i, i + CONCURRENCY_LIMIT);
-    const batchPromises = batch.map((text, batchIndex) =>
-      embedText(text).then((embedding) => {
-        results[i + batchIndex] = embedding;
-      })
+  // Process in batches of 100 (API limit)
+  for (let i = 0; i < texts.length; i += BATCH_LIMIT) {
+    const batch = texts.slice(i, i + BATCH_LIMIT);
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:batchEmbedContents?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requests: batch.map(text => ({
+            model: `models/${EMBEDDING_MODEL}`,
+            content: { parts: [{ text }] },
+          })),
+        }),
+      }
     );
-    await Promise.all(batchPromises);
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Batch embedding failed (${res.status}): ${errText}`);
+    }
+
+    const data = await res.json();
+    const embeddings = data.embeddings;
+
+    if (!embeddings || embeddings.length !== batch.length) {
+      throw new Error(`Batch embedding returned ${embeddings?.length ?? 0} results, expected ${batch.length}.`);
+    }
+
+    for (let j = 0; j < embeddings.length; j++) {
+      allEmbeddings[i + j] = embeddings[j].values;
+    }
   }
 
-  return results;
+  return allEmbeddings;
 }
 
 /* ─── GenAI Client Export (for Chat / Processing) ─────────────── */
