@@ -204,8 +204,9 @@ async function handleVectorize(payload: {
     console.log(`[Processor:Vectorize] Split into ${microChunks.length} micro-chunks.`);
 
     // 3. Encrypt (governed mode)
+    let sessionKeyMaterial = '';
     if (mode === 'governed' && tenantId) {
-      await ensureKeyInitialized(tenantId);
+      sessionKeyMaterial = await ensureKeyInitialized(sessionId, ENCRYPTION_VERSION, tenantId);
     }
 
     // 4. Embed
@@ -230,8 +231,8 @@ async function handleVectorize(payload: {
 
       if (mode === 'governed' && tenantId) {
         metadata.encryptionVersion = ENCRYPTION_VERSION;
-        metadata.text = await encrypt(tenantId, mc.text);
-        metadata.macroText = await encrypt(tenantId, macroText);
+        metadata.text = encrypt(mc.text, sessionKeyMaterial);
+        metadata.macroText = encrypt(macroText, sessionKeyMaterial);
       }
 
       return {
