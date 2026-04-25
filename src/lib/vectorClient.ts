@@ -17,6 +17,7 @@
 
 import { Index } from '@upstash/vector';
 import { withRetry } from './retry';
+import { createLimiter } from './concurrency';
 import { Errors } from '@/lib/errors';
 import { NAMESPACE_PREFIX } from './types';
 import type { AxiomMode, VectorMetadata } from './types';
@@ -131,27 +132,25 @@ export async function upsertVectors(
   const ns = index.namespace(namespace);
 
   const BATCH_SIZE = 100;
-  const batches: (typeof vectors)[] = [];
+
+  // Bounded concurrency: max 5 simultaneous upserts to prevent
+  // 429 rate-limit storms and socket pool exhaustion on serverless.
+  const limit = createLimiter(5);
+  const batchPromises = [];
   for (let i = 0; i < vectors.length; i += BATCH_SIZE) {
-    batches.push(vectors.slice(i, i + BATCH_SIZE));
+    const batch = vectors.slice(i, i + BATCH_SIZE);
+    const formattedBatch = batch.map((v) => ({
+      id: v.id,
+      vector: v.vector,
+      metadata: v.metadata as VectorMeta,
+    }));
+    batchPromises.push(
+      limit(() => withRetry(() => ns.upsert(formattedBatch), { label: `upsert-batch-${i}` }))
+    );
   }
 
-  // Parallelize batches
-  await Promise.all(
-    batches.map(async (batch, idx) => {
-      const formattedBatch = batch.map((v) => ({
-        id: v.id,
-        vector: v.vector,
-        metadata: v.metadata as VectorMeta,
-      }));
-
-      await withRetry(() => ns.upsert(formattedBatch), {
-        label: `vector-upsert-batch-${idx + 1}/${batches.length}`,
-        maxRetries: 5,
-        baseDelayMs: 500,
-      });
-    })
-  );
+  console.log(`[VectorClient] Upserting ${vectors.length} vectors in ${batchPromises.length} batches (concurrency=5)`);
+  await Promise.all(batchPromises);
 }
 
 /* ─── Query ───────────────────────────────────────────────────── */

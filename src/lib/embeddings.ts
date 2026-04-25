@@ -10,6 +10,7 @@
 
 
 import { CONFIG } from './config';
+import { createLimiter } from './concurrency';
 
 export type { Content } from '@google/genai';
 
@@ -67,22 +68,34 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
     batches.push(texts.slice(i, i + BATCH_LIMIT));
   }
 
-  // Execute ALL batches in parallel
-  const results = await Promise.all(batches.map(async (batch) => {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:batchEmbedContents?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        requests: batch.map(text => ({
-          model: `models/${EMBEDDING_MODEL}`,
-          content: { parts: [{ text }] },
-        })),
-      }),
-    });
-    if (!res.ok) throw new Error('Batch failed');
-    const data = await res.json();
-    return data.embeddings.map((e: any) => e.values);
-  }));
+  // Bounded concurrency: max 5 simultaneous GenAI API calls to prevent
+  // 429 rate-limit storms during large document ingestion.
+  const limit = createLimiter(5);
+  const batchPromises = [];
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i];
+    batchPromises.push(limit(async () => {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:batchEmbedContents?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requests: batch.map((text: string) => ({
+            model: `models/${EMBEDDING_MODEL}`,
+            content: { parts: [{ text }] },
+          })),
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Batch embedding failed (${res.status}): ${errText}`);
+      }
+      const data = await res.json();
+      return data.embeddings.map((e: any) => e.values);
+    }));
+  }
+
+  console.log(`[Embeddings] Embedding ${texts.length} texts in ${batches.length} batches (concurrency=5)`);
+  const results = await Promise.all(batchPromises);
 
   return results.flat();
 }
