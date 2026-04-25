@@ -19,6 +19,7 @@ import { embedTexts, getApiKey, getGenAIFile, deleteGenAIFile } from '@/lib/embe
 import { splitHierarchical } from '@/lib/textSplitter';
 import { encrypt, ensureKeyInitialized } from '@/lib/kms';
 import type { VectorMetadata } from '@/lib/types';
+import { CONFIG } from '@/lib/config';
 
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
@@ -26,7 +27,6 @@ export const dynamic = 'force-dynamic';
 const EXTRACTION_MODEL = 'gemini-2.5-flash';
 const FILE_POLL_INTERVAL_MS = 2000;
 const FILE_POLL_MAX_ATTEMPTS = 90;
-const MAX_MACRO_TEXT_BYTES = 30_000;
 const ENCRYPTION_VERSION = 'v1';
 
 export async function POST(req: Request) {
@@ -155,8 +155,8 @@ export async function POST(req: Request) {
     try {
       const vectors = await Promise.all(microChunks.map(async (mc: any, i: number) => {
         let macroText = mc.parentMacroText;
-        if (macroText.length > MAX_MACRO_TEXT_BYTES) {
-          macroText = macroText.substring(0, MAX_MACRO_TEXT_BYTES) + '… [Truncated]';
+        if (macroText.length > CONFIG.MAX_MACRO_TEXT_BYTES) {
+          macroText = macroText.substring(0, CONFIG.MAX_MACRO_TEXT_BYTES) + '… [Truncated]';
         }
 
         const metadata: VectorMetadata = {

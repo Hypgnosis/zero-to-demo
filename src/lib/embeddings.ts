@@ -62,52 +62,29 @@ const BATCH_LIMIT = 100; // Max texts per batchEmbedContents call
 
 export async function embedTexts(texts: string[]): Promise<number[][]> {
   const apiKey = getApiKey();
-  const allEmbeddings: number[][] = new Array(texts.length);
-
-  // Divide texts into batches of 100
-  const batches: string[][] = [];
+  const batches = [];
   for (let i = 0; i < texts.length; i += BATCH_LIMIT) {
     batches.push(texts.slice(i, i + BATCH_LIMIT));
   }
 
-  // Process all batches in parallel
-  const results = await Promise.all(
-    batches.map(async (batch, batchIdx) => {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:batchEmbedContents?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            requests: batch.map(text => ({
-              model: `models/${EMBEDDING_MODEL}`,
-              content: { parts: [{ text }] },
-            })),
-          }),
-        }
-      );
+  // Execute ALL batches in parallel
+  const results = await Promise.all(batches.map(async (batch) => {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:batchEmbedContents?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: batch.map(text => ({
+          model: `models/${EMBEDDING_MODEL}`,
+          content: { parts: [{ text }] },
+        })),
+      }),
+    });
+    if (!res.ok) throw new Error('Batch failed');
+    const data = await res.json();
+    return data.embeddings.map((e: any) => e.values);
+  }));
 
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Batch embedding ${batchIdx} failed (${res.status}): ${errText}`);
-      }
-
-      const data = await res.json();
-      return { batchIdx, embeddings: data.embeddings };
-    })
-  );
-
-  // Reassemble in correct order
-  for (const { batchIdx, embeddings } of results) {
-    const startIdx = batchIdx * BATCH_LIMIT;
-    if (!embeddings || embeddings.length === 0) continue;
-    
-    for (let j = 0; j < embeddings.length; j++) {
-      allEmbeddings[startIdx + j] = embeddings[j].values;
-    }
-  }
-
-  return allEmbeddings;
+  return results.flat();
 }
 
 /* ─── GenAI Client Export (for Chat / Processing) ─────────────── */

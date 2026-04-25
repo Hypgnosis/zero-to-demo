@@ -25,6 +25,7 @@ import { UploadQuerySchema, resolveMode } from '@/lib/validation';
 import { auditDocumentUpload } from '@/lib/audit';
 import type { UploadResponse, IngestionJob } from '@/lib/types';
 import type { ProcessDocumentPayload } from '@/lib/validation';
+import { CONFIG } from '@/lib/config';
 
 /* ─── Constants ───────────────────────────────────────────────── */
 
@@ -140,9 +141,6 @@ export const POST = withErrorHandler(async (req: Request) => {
   const qstashToken = process.env.QSTASH_TOKEN;
   if (!qstashToken) throw Errors.configMissing('QSTASH_TOKEN');
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL
-    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-
   const qstash = new QStashClient({ token: qstashToken });
 
   const payload: ProcessDocumentPayload = {
@@ -155,7 +153,7 @@ export const POST = withErrorHandler(async (req: Request) => {
   };
 
   await qstash.publishJSON({
-    url: `${baseUrl}/api/webhooks/process`,
+    url: `${CONFIG.baseUrl}/api/webhooks/process`,
     body: payload,
     retries: 2,
   });

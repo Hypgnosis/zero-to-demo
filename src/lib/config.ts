@@ -14,6 +14,10 @@ export const CONFIG = {
     if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
     // Netlify provides URL or DEPLOY_URL in certain contexts
     if (process.env.URL) return process.env.URL;
+    if (process.env.DEPLOY_URL) return process.env.DEPLOY_URL;
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('CRITICAL: baseUrl could not be resolved in production environment. Set NEXT_PUBLIC_BASE_URL.');
+    }
     return 'http://localhost:3000';
   },
 
