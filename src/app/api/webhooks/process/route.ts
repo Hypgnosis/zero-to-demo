@@ -37,17 +37,16 @@ import { upsertVectors } from '@/lib/vectorClient';
 import { embedTexts, getApiKey, getGenAIFile, deleteGenAIFile } from '@/lib/embeddings';
 import { splitHierarchical } from '@/lib/textSplitter';
 import { encrypt, ensureKeyInitialized } from '@/lib/kms';
+import { CONFIG } from '@/lib/config';
 import type { VectorMetadata, AxiomMode } from '@/lib/types';
 
-/* ─── Config ──────────────────────────────────────────────────── */
+/* ─── Config (Overrides via CONFIG) ────────────────────────── */
 
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 
-const EXTRACTION_MODEL = 'gemini-2.5-flash';
 const FILE_POLL_INTERVAL_MS = 2000;
 const FILE_POLL_MAX_ATTEMPTS = 5; // Max 10s polling — tight for Netlify
-const MAX_MACRO_TEXT_BYTES = 30_000;
 const ENCRYPTION_VERSION = 'v1';
 
 /**
@@ -116,7 +115,7 @@ async function handleExtract(payload: {
     // 3. Extract content via Gemini REST
     const apiKey = getApiKey();
     const generateRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${EXTRACTION_MODEL}:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.MODELS.EXTRACTOR}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -150,11 +149,10 @@ async function handleExtract(payload: {
     const qstashToken = process.env.QSTASH_TOKEN;
     if (!qstashToken) throw new Error('QSTASH_TOKEN not set');
 
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
     const qstash = new QStashClient({ token: qstashToken });
 
     await qstash.publishJSON({
-      url: `${baseUrl}/api/webhooks/process`,
+      url: `${CONFIG.baseUrl}/api/webhooks/process`,
       body: {
         step: 'vectorize',
         jobId,
@@ -216,8 +214,8 @@ async function handleVectorize(payload: {
     // 5. Build vectors
     const vectors = await Promise.all(microChunks.map(async (mc, i) => {
       let macroText = mc.parentMacroText;
-      if (macroText.length > MAX_MACRO_TEXT_BYTES) {
-        macroText = macroText.substring(0, MAX_MACRO_TEXT_BYTES) + '… [Truncated]';
+      if (macroText.length > CONFIG.MAX_MACRO_TEXT_BYTES) {
+        macroText = macroText.substring(0, CONFIG.MAX_MACRO_TEXT_BYTES) + '… [Truncated]';
       }
 
       const metadata: VectorMetadata = {

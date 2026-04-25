@@ -131,22 +131,27 @@ export async function upsertVectors(
   const ns = index.namespace(namespace);
 
   const BATCH_SIZE = 100;
-  const totalBatches = Math.ceil(vectors.length / BATCH_SIZE);
-
+  const batches: (typeof vectors)[] = [];
   for (let i = 0; i < vectors.length; i += BATCH_SIZE) {
-    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-    const batch = vectors.slice(i, i + BATCH_SIZE).map((v) => ({
-      id: v.id,
-      vector: v.vector,
-      metadata: v.metadata as VectorMeta,
-    }));
-
-    await withRetry(() => ns.upsert(batch), {
-      label: `vector-upsert-batch-${batchNum}/${totalBatches}`,
-      maxRetries: 5,
-      baseDelayMs: 500,
-    });
+    batches.push(vectors.slice(i, i + BATCH_SIZE));
   }
+
+  // Parallelize batches
+  await Promise.all(
+    batches.map(async (batch, idx) => {
+      const formattedBatch = batch.map((v) => ({
+        id: v.id,
+        vector: v.vector,
+        metadata: v.metadata as VectorMeta,
+      }));
+
+      await withRetry(() => ns.upsert(formattedBatch), {
+        label: `vector-upsert-batch-${idx + 1}/${batches.length}`,
+        maxRetries: 5,
+        baseDelayMs: 500,
+      });
+    })
+  );
 }
 
 /* ─── Query ───────────────────────────────────────────────────── */

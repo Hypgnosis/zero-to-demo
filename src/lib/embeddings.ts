@@ -9,9 +9,11 @@
  */
 
 
+import { CONFIG } from './config';
+
 export type { Content } from '@google/genai';
 
-const EMBEDDING_MODEL = 'gemini-embedding-001';
+const EMBEDDING_MODEL = CONFIG.MODELS.EMBEDDING;
 
 /* ─── API Key ─────────────────────────────────────────────────── */
 
@@ -62,38 +64,46 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
   const apiKey = getApiKey();
   const allEmbeddings: number[][] = new Array(texts.length);
 
-  // Process in batches of 100 (API limit)
+  // Divide texts into batches of 100
+  const batches: string[][] = [];
   for (let i = 0; i < texts.length; i += BATCH_LIMIT) {
-    const batch = texts.slice(i, i + BATCH_LIMIT);
+    batches.push(texts.slice(i, i + BATCH_LIMIT));
+  }
 
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:batchEmbedContents?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          requests: batch.map(text => ({
-            model: `models/${EMBEDDING_MODEL}`,
-            content: { parts: [{ text }] },
-          })),
-        }),
+  // Process all batches in parallel
+  const results = await Promise.all(
+    batches.map(async (batch, batchIdx) => {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:batchEmbedContents?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requests: batch.map(text => ({
+              model: `models/${EMBEDDING_MODEL}`,
+              content: { parts: [{ text }] },
+            })),
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Batch embedding ${batchIdx} failed (${res.status}): ${errText}`);
       }
-    );
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Batch embedding failed (${res.status}): ${errText}`);
-    }
+      const data = await res.json();
+      return { batchIdx, embeddings: data.embeddings };
+    })
+  );
 
-    const data = await res.json();
-    const embeddings = data.embeddings;
-
-    if (!embeddings || embeddings.length !== batch.length) {
-      throw new Error(`Batch embedding returned ${embeddings?.length ?? 0} results, expected ${batch.length}.`);
-    }
-
+  // Reassemble in correct order
+  for (const { batchIdx, embeddings } of results) {
+    const startIdx = batchIdx * BATCH_LIMIT;
+    if (!embeddings || embeddings.length === 0) continue;
+    
     for (let j = 0; j < embeddings.length; j++) {
-      allEmbeddings[i + j] = embeddings[j].values;
+      allEmbeddings[startIdx + j] = embeddings[j].values;
     }
   }
 
